@@ -1,0 +1,607 @@
+---
+title: "ConnectingData"
+output: html_document
+date: "2023-01-19"
+---
+
+```{r}
+library(foreign)
+library(tidyverse)
+library(data.table)
+library(ggplot2)
+library(scales)
+library(lubridate)
+library(reshape2)
+require(gridExtra)
+library(zoo)
+
+
+# Set T for non-15 minute periods
+#need to check per length
+day_bool <- F
+
+
+if (!day_bool){
+  per_in_day <- 96
+  min_in_per <- 15
+} else {
+  # per_in_day <- 24
+  # min_in_per <- 60
+  # per_in_day <- 1440
+  # min_in_per <- 1
+  per_in_day <- 288
+  min_in_per <- 5
+}
+
+SumNA <- function(vec){
+  return(sum(is.na(vec)))
+}
+  
+RollingMIMS <- function(ind_seqn,acth){
+  x <- as.matrix((acth %>% dplyr::filter(SEQN == ind_seqn))[,-c(1:3)])
+  ind_act <- as.vector(t(x))
+  ind_act <- log(1 + ind_act)
+
+  
+  rolling_mean <- rollmean(ind_act,300,na.rm = T)
+  rolling_sumna <- rollapply(ind_act,300,SumNA)
+  rolling_mean[rolling_sumna > .95*300] <- NA
+  L5 <- min(rolling_mean,na.rm = T)
+  
+  rolling_mean <- rollmean(ind_act,600,na.rm = T)
+  rolling_sumna <- rollapply(ind_act,600,SumNA)
+  rolling_mean[rolling_sumna > .95*600] <- NA
+  M10 <- max(rolling_mean,na.rm = T)
+  
+  TLOGMIM <- sum(ind_act,na.rm = T)
+  
+  RAL <- (M10 - L5)/(M10+L5)
+  
+  return(c(TLOGMIM,M10,L5,RAL))
+}
+
+
+load("Data/PAXPREDMG_long.rda")
+pred_long_G <- long_data
+load("Data/PAXPREDMH_long.rda")
+pred_long_H <- long_data
+
+# load("Data/sleepmode_long.rda")
+# sleepmode_long <- as.data.frame(sleepmode_long)
+
+load("Data/PAXMTSMG_long.rda")
+acth_long_G <- long_data
+load("Data/PAXMTSMH_long.rda")
+acth_long_H <- long_data
+
+load("Data/PAXLXMMG_long.rda")
+lux_long_G <- long_data
+load("Data/PAXLXMMH_long.rda")
+lux_long_H <- long_data
+
+load("Data/PAXQFMG_long.rda")
+flag_long_G <- long_data
+load("Data/PAXQFMH_long.rda")
+flag_long_H <- long_data
+
+
+WeekendClean <- function(df_long){
+  df_long <- df_long %>% filter(PAXDAYWM == 6 | PAXDAYWM == 7 | PAXDAYWM == 1)
+  inds_week <- unlist(gregexpr(671,paste(df_long$PAXDAYWM, collapse = '')))
+  inds_ord <-unlist(gregexpr("123|234|345|456|567|678|789",paste(df_long$PAXDAYM, collapse = '')))
+  
+  inds_week_ord_ind <- inds_week %in% inds_ord
+  inds_week_ord <- inds_week[inds_week_ord_ind]
+  
+  seq2 <- Vectorize(seq.default, vectorize.args = c("from", "to"))
+  
+  inds_to_keep <- as.vector(seq2(from = inds_week_ord,to = inds_week_ord+2,by = 1))
+  df_long <- df_long[inds_to_keep,]
+  df_long <- df_long %>% mutate(PAXDAYM = rep(c(1,2,3),dim(df_long)[1]/3))
+  
+  seq(1,dim(df_long)[1],3)
+  df_long[seq(1,dim(df_long)[1],3),4:723] <- NA
+  return(df_long)
+}
+
+
+
+# WeekendCleanOLD <- function(df){
+#   
+#   df <- df %>% filter(PAXDAYWM == 1 | PAXDAYWM == 7)
+#   df <- df %>% filter(PAXDAYM != 9)
+#   df <- df %>% filter(!(PAXDAYM == 8 & PAXDAYWM == 7))
+#   df <- df %>% filter(!(PAXDAYM == 1 & PAXDAYWM == 1))
+#   df <- df %>% filter(!(SEQN %in% names(which(table(df[,1])==1))))
+#   df <- df %>% mutate(PAXDAYM = rep(c(1,2),dim(df)[1]/2))
+#   
+#   return(df)
+# } 
+
+# #Comment for full week
+# #Uncomment for weekend only
+# pred_long_G <- WeekendClean(pred_long_G)
+# pred_long_H <- WeekendClean(pred_long_H)
+# acth_long_G <- WeekendClean(acth_long_G)
+# acth_long_H <- WeekendClean(acth_long_H)
+# lux_long_G <- WeekendClean(lux_long_G)
+# lux_long_H <- WeekendClean(lux_long_H)
+# flag_long_G <- WeekendClean(flag_long_G)
+# flag_long_H <- WeekendClean(flag_long_H)
+
+# apply(long_data,2,as.numeric)
+
+#Set -.01 values to NA
+acth_long_G[acth_long_G == -.01] <- NA
+acth_long_H[acth_long_H == -.01] <- NA
+ 
+
+#FIlter out flags
+
+flag_long_G[,4:1443][flag_long_G[,4:1443] > 0 ] <- NA
+acth_long_G[,4:1443] <- acth_long_G[,4:1443] + flag_long_G[,4:1443]
+flag_long_H[,4:1443][flag_long_H[,4:1443] > 0 ] <- NA
+acth_long_H[,4:1443] <- acth_long_H[,4:1443] + flag_long_H[,4:1443]
+
+
+# # Removes non-wear (as predicted by watch)
+# # 11.34% removed
+# pred_long_G[,4:1443] <- (pred_long_G[,4:1443] !=3)
+# pred_long_G[is.na(pred_long_G)] <- F
+# pred_long_H[,4:1443] <- (pred_long_H[,4:1443] !=3)
+# pred_long_H[is.na(pred_long_H)] <- F
+
+
+# Removes non-wear and unknown (as predicted by watch)
+# 14.82% removed
+pred_long_G[,4:1443] <- (pred_long_G[,4:1443] !=3) & (pred_long_G[,4:1443] !=4)
+pred_long_G[is.na(pred_long_G)] <- F
+pred_long_H[,4:1443] <- (pred_long_H[,4:1443] !=3) & (pred_long_H[,4:1443] !=4)
+pred_long_H[is.na(pred_long_H)] <- F
+
+acth_long_G[pred_long_G == F] <- NA
+lux_long_G[pred_long_G == F] <- NA
+acth_long_H[pred_long_H == F] <- NA
+lux_long_H[pred_long_H == F] <- NA
+
+#Trims
+acth_long_G[,4:1443][acth_long_G[,4:1443] > quantile(acth_long_G[,4:1443], probs = .995,na.rm = T)] <- NA
+acth_long_H[,4:1443][acth_long_H[,4:1443] > quantile(acth_long_H[,4:1443], probs = .995,na.rm = T)] <- NA
+#Max value of 2500, approx 300k times
+lux_long_G[,4:1443][lux_long_G[,4:1443] > quantile(lux_long_G[,4:1443], probs = .995,na.rm = T)] <- NA
+lux_long_H[,4:1443][lux_long_H[,4:1443] > quantile(lux_long_H[,4:1443], probs = .995,na.rm = T)] <- NA
+
+
+
+```
+
+```{r}
+MatchSEQN <- function(ind_seqn, add_data,var_col_ind,seqn_freq,seqn_list){
+  add_data_ind <- match(ind_seqn, add_data[,1])
+  repitions <- seqn_freq[match(ind_seqn, rownames(seqn_freq))]
+  return(rep(add_data[add_data_ind,var_col_ind],repitions))
+}
+  
+
+AddVariable <- function(var_name,add_data, seqn_freq,seqn_list){
+  var_col_ind <- which(colnames(add_data) == var_name)
+  return(unlist(lapply(seqn_list, MatchSEQN, add_data,var_col_ind,seqn_freq,seqn_list)))
+}
+
+DownsampleInd <- function(long_data_ind, minutes = 15){
+  down_samp_ind_mat <- matrix(as.numeric(long_data_ind), ncol = minutes, byrow = T)
+  #MEAN OR MEDIAN HERE IS IMPORTANT
+  return(apply(down_samp_ind_mat,1,median, na.rm = T))
+}
+
+DownsampleConcatTranspose <- function(data_long,id_info,minutes = 15){
+  
+  if (minutes != 1){
+    acth_down_H <- apply(data_long,1,DownsampleInd,minutes)
+  } else {
+    acth_down_H <- t(data_long)
+  }
+  
+  acth_down_full_H <- cbind(id_info,t(acth_down_H))
+  
+  acth_down_full_H <- acth_down_full_H %>% pivot_wider(id_cols = SEQN,names_from = PAXDAYM,
+                         values_from = colnames(acth_down_full_H)[4:length(colnames(acth_down_full_H))],
+                         names_glue = "{PAXDAYM}_{.value}",
+                         names_vary = "slowest")
+  
+  return(acth_down_full_H)
+}
+```
+
+```{r}
+seqn_freq_H <- table(acth_long_H$SEQN)
+seqn_list_H <- unique(acth_long_H$SEQN)
+demo_H <- read.xport("Raw Data/DEMO_H.XPT")
+health_insurance_H <- read.xport("Raw Data/HIQ_H.XPT")
+food_sec_H <- read.xport("Raw Data/FSQ_H.XPT")
+body_H <- read.xport("Raw Data/BMX_H.XPT")
+
+alc_H <- read.xport("Raw Data/ALQ_H.XPT")
+diet_H <- read.xport("Raw Data/DBQ_H.XPT")
+home_H <- read.xport("Raw Data/HOQ_H.XPT")
+dep_H <- read.xport("Raw Data/DPQ_H.XPT")
+inc_H <- read.xport("Raw Data/INQ_H.XPT")
+pa_H <- read.xport("Raw Data/PAQ_H.XPT")
+# occ_H <- read.xport("Raw Data/OCQ_H.XPT")
+
+
+pa_H$PAQ650[pa_H$PAQ650 >= 9] <- NA
+pa_H$PAQ665[pa_H$PAQ665 >= 9] <- NA
+
+pa_H <- pa_H %>% 
+  mutate(PAQ650 = abs(PAQ650-2)) %>% 
+  mutate(PAQ665 = abs(PAQ665-2)) 
+
+pa_H <- pa_H %>% mutate(ActComb = PAQ650 | PAQ665)
+pa_H$PAD680[pa_H$PAD680 >= 7777] <- NA
+pa_H$PAD680 <- pa_H$PAD680/60
+
+demo_H$DMDHREDU[demo_H$DMDHREDU > 5] <- NA
+
+dep_seqn <- dep_H %>% dplyr::select("SEQN") 
+dep_H <- dep_H %>% dplyr::select(-c("SEQN","DPQ100")) 
+dep_H[dep_H > 3] <- 0
+dep_H <- dep_H %>% mutate(PHQ = rowSums(dep_H))
+dep_H <- cbind(dep_seqn,dep_H)
+
+home_H$HOQ065[home_H$HOQ065 > 2] <- NA
+
+health_insurance_H$HIQ260[is.na(health_insurance_H$HIQ260)] <- 0
+health_insurance_H <- health_insurance_H %>%
+  mutate(HI = ((HIQ011==2) &(HIQ260!=1))+1 )
+
+
+inc_H$IND235[inc_H$IND235 > 12] <- NA
+  
+########
+#Weights for examination (so PAM)
+#To include weights for wave G and H just divide all weights by 2
+# demo$WTMEC2YR 
+
+#overall health
+health_H <- read.xport("Raw Data/HSQ_H.XPT")
+health_H$HSD010[health_H$HSD010>5] <- NA
+health_H$HSD010 <- health_H$HSD010 - 1
+
+diabetes_H <- read.xport("Raw Data/DIQ_H.XPT")
+diabetes_H$DIQ010[diabetes_H$DIQ010 == 3] <- 2
+diabetes_H$DIQ010[diabetes_H$DIQ010 > 3 ] <- NA
+diabetes_H$DIQ010 <- abs(diabetes_H$DIQ010 - 2)
+
+demo_H$DMDEDUC2[demo_H$DMDEDUC2 > 5] <- NA
+
+medical_H <- read.xport("Raw Data/MCQ_H.XPT")
+#CHD
+medical_H$MCQ160C[medical_H$MCQ160C > 2] <- NA
+medical_H$MCQ160C <- abs(medical_H$MCQ160C - 2)
+#CHF
+medical_H$MCQ160B[medical_H$MCQ160B > 2] <- NA
+medical_H$MCQ160B <- abs(medical_H$MCQ160B - 2)
+#Heart attack
+medical_H$MCQ160E[medical_H$MCQ160E > 2] <- NA
+medical_H$MCQ160E <- abs(medical_H$MCQ160E - 2)
+#Stroke
+medical_H$MCQ160F[medical_H$MCQ160F > 2] <- NA
+medical_H$MCQ160F <- abs(medical_H$MCQ160F - 2)
+#Cancer
+medical_H$MCQ220[medical_H$MCQ220 > 2] <- NA
+medical_H$MCQ220 <- abs(medical_H$MCQ220 - 2)
+
+#Alcohol
+#Never, Former, Mod, Heavy
+alc_H$ALQ130[alc_H$ALQ130 > 82] <- NA
+alc_H <- alc_H %>% mutate(ALCOHOL = case_when(ALQ101 == 2 & ALQ110 == 2 ~ 0,
+                                              ALQ101 == 2 & ALQ110 == 1 ~ 1,
+                                              ALQ101 == 1 & ALQ130 <= 2 ~ 2,
+                                              ALQ101 == 1 & ALQ130 > 2 ~ 3))
+alc_H$ALCOHOL[is.na(alc_H$ALCOHOL)] <- 4
+
+#Smoking
+#Never, Former, Current
+smoking_H <- read.xport("Raw Data/SMQ_H.XPT")
+smoking_H <- smoking_H %>% mutate(SMOKING = case_when(SMQ020 == 2  ~ 0,
+                                                      SMQ020 == 1 & SMQ040 == 3  ~ 1,
+                                                      SMQ020 == 1 & SMQ040 < 3  ~ 2))
+
+
+phyfunc_H <- read.xport("Raw Data/PFQ_H.XPT")
+phyfunc_H <- phyfunc_H %>% mutate(PHYFUNC = case_when(PFQ054 == 2 | PFQ061B == 1 | PFQ061C == 1  ~ 0,
+                                                      PFQ054 == 1 | PFQ061B %in% c(2:5) | PFQ061C %in% c(2:5)  ~ 1))
+                                                      
+                                                      
+                 
+
+#Gender refactor male is 0                                     
+demo_H$RIAGENDR <- demo_H$RIAGENDR - 1
+#Refactor education
+demo_H$DMDHREDU <- demo_H$DMDHREDU - 1
+
+#Refactor Race
+demo_H$RIDRETH3[demo_H$RIDRETH3==6] <- 5
+demo_H$RIDRETH3[demo_H$RIDRETH3==7] <- 6
+demo_H$RIDRETH3 <- demo_H$RIDRETH3 - 1
+
+covariate_df_H <- data.frame(gender = AddVariable("RIAGENDR" ,demo_H, seqn_freq_H, seqn_list_H),
+                           houseFS = AddVariable("FSDHH" ,food_sec_H, seqn_freq_H, seqn_list_H),
+                           race = AddVariable("RIDRETH3" ,demo_H, seqn_freq_H, seqn_list_H),
+                           poverty = AddVariable("INDFMPIR" ,demo_H, seqn_freq_H, seqn_list_H),
+                           age = AddVariable("RIDAGEYR" ,demo_H, seqn_freq_H, seqn_list_H),
+                           BMI = AddVariable("BMXBMI" ,body_H, seqn_freq_H, seqn_list_H),
+                           # # Alc_drinks = AddVariable("ALQ130" ,alc_H, seqn_freq_H, seqn_list_H),
+                           # # ff_pizza = AddVariable("DBD900" ,diet_H, seqn_freq_H, seqn_list_H),
+                           # # ready_eat = AddVariable("DBD905" ,diet_H, seqn_freq_H, seqn_list_H),
+                           # # frozen = AddVariable("DBD910" ,diet_H, seqn_freq_H, seqn_list_H),
+                           insurance = AddVariable("HI" ,health_insurance_H, seqn_freq_H, seqn_list_H),
+                           home_own = AddVariable("HOQ065" ,home_H, seqn_freq_H, seqn_list_H),
+                           income = AddVariable("IND235" ,inc_H, seqn_freq_H, seqn_list_H),
+                           # # savings = AddVariable("IND247" ,inc_H, seqn_freq_H, seqn_list_H),
+                           depression = AddVariable("PHQ" ,dep_H, seqn_freq_H, seqn_list_H),
+                           education = AddVariable("DMDHREDU" ,demo_H, seqn_freq_H, seqn_list_H),
+                           modact = AddVariable("ActComb" ,pa_H, seqn_freq_H, seqn_list_H),
+                           statact = AddVariable("PAD680" ,pa_H, seqn_freq_H, seqn_list_H),
+                           sweights = AddVariable("WTMEC2YR" ,demo_H, seqn_freq_H, seqn_list_H),
+                           overall_health = AddVariable("HSD010" ,health_H, seqn_freq_H, seqn_list_H),
+                           CHD = AddVariable("MCQ160C" ,medical_H, seqn_freq_H, seqn_list_H),
+                           diabetes = AddVariable("DIQ010" ,diabetes_H, seqn_freq_H, seqn_list_H),
+                           CHF = AddVariable("MCQ160B" ,medical_H, seqn_freq_H, seqn_list_H),
+                           heart_attack = AddVariable("MCQ160E" ,medical_H, seqn_freq_H, seqn_list_H),
+                           stroke = AddVariable("MCQ160F" ,medical_H, seqn_freq_H, seqn_list_H),
+                           cancer = AddVariable("MCQ220" ,medical_H, seqn_freq_H, seqn_list_H),
+                           alcohol = AddVariable("ALCOHOL" ,alc_H, seqn_freq_H, seqn_list_H),
+                           smoking = AddVariable("SMOKING" ,smoking_H, seqn_freq_H, seqn_list_H),
+                           phyfunc = AddVariable("PHYFUNC" ,phyfunc_H, seqn_freq_H, seqn_list_H))
+
+covariate_df_H <- covariate_df_H %>% mutate(bmi_disc = case_when(BMI < 18.5 ~ 0,
+                                           BMI <25 & BMI >= 18.5 ~ 1,
+                                           BMI <30 & BMI >= 25 ~ 2,
+                                           BMI >= 30 ~ 3))
+
+complete_inds_H <- complete.cases(covariate_df_H %>% dplyr::select(-depression))
+# if (!day_bool){
+#   complete_inds_H <- complete.cases(covariate_df_H %>% dplyr::select(-depression))
+# } else {
+#   complete_inds_H <- complete.cases(covariate_df_H) & covariate_df_H$depression >= 10
+# }
+
+#######
+#TODO
+#Save Minute level activity (as of line 273 acth_long_H) with different var name
+#Run RollingMIMS post downsamble on saved var with new SEQN list
+
+
+acth_long_H_min <- acth_long_H[complete_inds_H,]
+
+####
+  
+id_info_H <- acth_long_H[complete_inds_H,][,1:3]
+acth_long_H <- acth_long_H[complete_inds_H,][,4:1443]
+lux_long_H <- lux_long_H[complete_inds_H,][,4:1443]
+covariate_df_H <- covariate_df_H[complete_inds_H,]
+
+#THIS USED TO BE LINE 370
+
+
+acth_down_H <- DownsampleConcatTranspose(acth_long_H,id_info_H,min_in_per)
+lux_down_H <- DownsampleConcatTranspose(lux_long_H,id_info_H,min_in_per)
+
+covariate_df_H <- apply(covariate_df_H,2,as.numeric) 
+covariate_df_H <- cbind(covariate_df_H,id_info_H)
+covariate_df_H <- covariate_df_H %>% filter(PAXDAYM == 1)
+
+to_keep_inds_H <- rowSums(is.na(acth_down_H))<= (per_in_day*4)|rowSums(is.na(lux_down_H)) <= (per_in_day*4)
+
+
+updated_seqn_list <- covariate_df_H[to_keep_inds_H,]$SEQN
+
+MIMS_sum_H <- do.call(rbind, lapply(updated_seqn_list,RollingMIMS,acth=acth_long_H_min))
+
+
+wave_data_H <- list(acth_down_H[to_keep_inds_H,],lux_down_H[to_keep_inds_H,],
+                    covariate_df_H[to_keep_inds_H,],MIMS_sum_H)
+if (!day_bool){
+  save(wave_data_H,file = "Wavedata_H.rda")
+} else {
+  save(wave_data_H,file = "WavedataALT_H.rda")
+}
+  
+
+
+
+```
+
+
+```{r}
+seqn_freq_G <- table(acth_long_G$SEQN)
+seqn_list_G <- unique(acth_long_G$SEQN)
+demo_G <- read.xport("Raw Data/DEMO_G.XPT")
+health_insurance_G <- read.xport("Raw Data/HIQ_G.XPT")
+food_sec_G <- read.xport("Raw Data/FSQ_G.XPT")
+body_G <- read.xport("Raw Data/BMX_G.XPT")
+
+alc_G <- read.xport("Raw Data/ALQ_G.XPT")
+diet_G <- read.xport("Raw Data/DBQ_G.XPT")
+home_G <- read.xport("Raw Data/HOQ_G.XPT")
+dep_G <- read.xport("Raw Data/DPQ_G.XPT")
+inc_G <- read.xport("Raw Data/INQ_G.XPT")
+pa_G <- read.xport("Raw Data/PAQ_G.XPT")
+# occ_G <- read.xport("Raw Data/OCQ_G.XPT")
+
+pa_G$PAQ650[pa_G$PAQ650 >= 9] <- NA
+pa_G$PAQ665[pa_G$PAQ665 >= 9] <- NA
+
+pa_G <- pa_G %>% 
+  mutate(PAQ650 = abs(PAQ650-2)) %>% 
+  mutate(PAQ665 = abs(PAQ665-2)) 
+
+pa_G <- pa_G %>% mutate(ActComb = PAQ650 | PAQ665)
+pa_G$PAD680[pa_G$PAD680 >= 7777] <- NA
+pa_G$PAD680 <- pa_G$PAD680/60
+
+demo_G$DMDHREDU[demo_G$DMDHREDU > 5] <- NA
+
+dep_seqn <- dep_G %>% dplyr::select("SEQN") 
+dep_G <- dep_G %>% dplyr::select(-c("SEQN","DPQ100")) 
+dep_G[dep_G > 3] <- 0
+dep_G <- dep_G %>% mutate(PHQ = rowSums(dep_G))
+dep_G <- cbind(dep_seqn,dep_G)
+
+home_G$HOQ065[home_G$HOQ065 > 2] <- NA
+
+health_insurance_G$HIQ260[is.na(health_insurance_G$HIQ260)] <- 0
+health_insurance_G <- health_insurance_G %>%
+  mutate(HI = ((HIQ011==2) &(HIQ260!=1))+1 )
+
+
+inc_G$IND235[inc_G$IND235 > 12] <- NA
+
+########
+#Weights for examination (so PAM)
+#To include weights for wave G and H just divide all weights by 2
+# demo$WTMEC2YR 
+
+#overall health
+health_G <- read.xport("Raw Data/HSQ_G.XPT")
+health_G$HSD010[health_G$HSD010>5] <- NA
+health_G$HSD010 <- health_G$HSD010 - 1
+
+diabetes_G <- read.xport("Raw Data/DIQ_G.XPT")
+diabetes_G$DIQ010[diabetes_G$DIQ010 == 3] <- 2
+diabetes_G$DIQ010[diabetes_G$DIQ010 > 3 ] <- NA
+diabetes_G$DIQ010 <- abs(diabetes_G$DIQ010 - 2)
+
+demo_G$DMDEDUC2[demo_G$DMDEDUC2 > 5] <- NA
+
+medical_G <- read.xport("Raw Data/MCQ_G.XPT")
+#CHD
+medical_G$MCQ160C[medical_G$MCQ160C > 2] <- NA
+medical_G$MCQ160C <- abs(medical_G$MCQ160C - 2)
+#CHF
+medical_G$MCQ160B[medical_G$MCQ160B > 2] <- NA
+medical_G$MCQ160B <- abs(medical_G$MCQ160B - 2)
+#Heart attack
+medical_G$MCQ160E[medical_G$MCQ160E > 2] <- NA
+medical_G$MCQ160E <- abs(medical_G$MCQ160E - 2)
+#Stroke
+medical_G$MCQ160F[medical_G$MCQ160F > 2] <- NA
+medical_G$MCQ160F <- abs(medical_G$MCQ160F - 2)
+#Cancer
+medical_G$MCQ220[medical_G$MCQ220 > 2] <- NA
+medical_G$MCQ220 <- abs(medical_G$MCQ220 - 2)
+
+#Alcohol
+#Never, Former, Mod, Heavy
+alc_G$ALQ130[alc_G$ALQ130 > 82] <- NA
+alc_G <- alc_G %>% mutate(ALCOHOL = case_when(ALQ101 == 2 & ALQ110 == 2 ~ 0,
+                                              ALQ101 == 2 & ALQ110 == 1 ~ 1,
+                                              ALQ101 == 1 & ALQ130 <= 2 ~ 2,
+                                              ALQ101 == 1 & ALQ130 > 2 ~ 3))
+alc_G$ALCOHOL[is.na(alc_G$ALCOHOL)] <- 4
+
+#Smoking
+#Never, Former, Current
+smoking_G <- read.xport("Raw Data/SMQ_G.XPT")
+smoking_G <- smoking_G %>% mutate(SMOKING = case_when(SMQ020 == 2  ~ 0,
+                                                      SMQ020 == 1 & SMQ040 == 3  ~ 1,
+                                                      SMQ020 == 1 & SMQ040 < 3  ~ 2))
+
+
+phyfunc_G <- read.xport("Raw Data/PFQ_G.XPT")
+phyfunc_G <- phyfunc_G %>% mutate(PHYFUNC = case_when(PFQ054 == 2 | PFQ061B == 1 | PFQ061C == 1  ~ 0,
+                                                      PFQ054 == 1 | PFQ061B %in% c(2:5) | PFQ061C %in% c(2:5)  ~ 1))
+
+
+#Gender refactor male is 0                                     
+demo_G$RIAGENDR <- demo_G$RIAGENDR - 1
+#Refactor education
+demo_G$DMDHREDU <- demo_G$DMDHREDU - 1
+
+#Refactor Race
+demo_G$RIDRETH3[demo_G$RIDRETH3==6] <- 5
+demo_G$RIDRETH3[demo_G$RIDRETH3==7] <- 6
+demo_G$RIDRETH3 <- demo_G$RIDRETH3 - 1
+
+covariate_df_G <- data.frame(gender = AddVariable("RIAGENDR" ,demo_G, seqn_freq_G, seqn_list_G),
+                           houseFS = AddVariable("FSDHH" ,food_sec_G, seqn_freq_G, seqn_list_G),
+                           race = AddVariable("RIDRETH3" ,demo_G, seqn_freq_G, seqn_list_G),
+                           poverty = AddVariable("INDFMPIR" ,demo_G, seqn_freq_G, seqn_list_G),
+                           age = AddVariable("RIDAGEYR" ,demo_G, seqn_freq_G, seqn_list_G),
+                           BMI = AddVariable("BMXBMI" ,body_G, seqn_freq_G, seqn_list_G),
+                           # Alc_drinks = AddVariable("ALQ130" ,alc_G, seqn_freq_G, seqn_list_G),
+                           # ff_pizza = AddVariable("DBD900" ,diet_G, seqn_freq_G, seqn_list_G),
+                           # ready_eat = AddVariable("DBD905" ,diet_G, seqn_freq_G, seqn_list_G),
+                           # frozen = AddVariable("DBD910" ,diet_G, seqn_freq_G, seqn_list_G),
+                           insurance = AddVariable("HI" ,health_insurance_G, seqn_freq_G, seqn_list_G),
+                           home_own = AddVariable("HOQ065" ,home_G, seqn_freq_G, seqn_list_G),
+                           income = AddVariable("IND235" ,inc_G, seqn_freq_G, seqn_list_G),
+                           # savings = AddVariable("IND247" ,inc_G, seqn_freq_G, seqn_list_G),
+                           depression = AddVariable("PHQ" ,dep_G, seqn_freq_G, seqn_list_G),
+                           education = AddVariable("DMDHREDU" ,demo_G, seqn_freq_G, seqn_list_G),
+                           modact = AddVariable("ActComb" ,pa_G, seqn_freq_G, seqn_list_G),
+                           statact = AddVariable("PAD680" ,pa_G, seqn_freq_G, seqn_list_G),
+                           sweights = AddVariable("WTMEC2YR" ,demo_G, seqn_freq_G, seqn_list_G),
+                           overall_health = AddVariable("HSD010" ,health_G, seqn_freq_G, seqn_list_G),
+                           CHD = AddVariable("MCQ160C" ,medical_G, seqn_freq_G, seqn_list_G),
+                           diabetes = AddVariable("DIQ010" ,diabetes_G, seqn_freq_G, seqn_list_G),
+                           CHF = AddVariable("MCQ160B" ,medical_G, seqn_freq_G, seqn_list_G),
+                           heart_attack = AddVariable("MCQ160E" ,medical_G, seqn_freq_G, seqn_list_G),
+                           stroke = AddVariable("MCQ160F" ,medical_G, seqn_freq_G, seqn_list_G),
+                           cancer = AddVariable("MCQ220" ,medical_G, seqn_freq_G, seqn_list_G),
+                           alcohol = AddVariable("ALCOHOL" ,alc_G, seqn_freq_G, seqn_list_G),
+                           smoking = AddVariable("SMOKING" ,smoking_G, seqn_freq_G, seqn_list_G),
+                           phyfunc = AddVariable("PHYFUNC" ,phyfunc_G, seqn_freq_G, seqn_list_G))
+
+covariate_df_G <- covariate_df_G %>% mutate(bmi_disc = case_when(BMI < 18.5 ~ 0,
+                                           BMI <25 & BMI >= 18.5 ~ 1,
+                                           BMI <30 & BMI >= 25 ~ 2,
+                                           BMI >= 30 ~ 3))
+
+complete_inds_G <- complete.cases(covariate_df_G %>% dplyr::select(-depression))
+# if (!day_bool){
+#   complete_inds_G <- complete.cases(covariate_df_G %>% dplyr::select(-depression))
+# } else {
+#   complete_inds_G <- complete.cases(covariate_df_G) & covariate_df_G$depression >= 10
+# }
+
+#######
+
+####
+
+acth_long_G_min <- acth_long_G[complete_inds_G,]
+
+id_info_G <- acth_long_G[complete_inds_G,][,1:3]
+acth_long_G <- acth_long_G[complete_inds_G,][,4:1443]
+lux_long_G <- lux_long_G[complete_inds_G,][,4:1443]
+covariate_df_G <- covariate_df_G[complete_inds_G,]
+
+
+  
+acth_down_G <- DownsampleConcatTranspose(acth_long_G,id_info_G,min_in_per)
+lux_down_G <- DownsampleConcatTranspose(lux_long_G,id_info_G,min_in_per)
+
+covariate_df_G <- apply(covariate_df_G,2,as.numeric) 
+covariate_df_G <- cbind(covariate_df_G,id_info_G)
+covariate_df_G <- covariate_df_G %>% filter(PAXDAYM == 1)
+
+
+to_keep_inds_G <- rowSums(is.na(acth_down_G))<= (per_in_day*4)|rowSums(is.na(lux_down_G)) <= (per_in_day*4)
+
+updated_seqn_list_G <- covariate_df_G[to_keep_inds_G,]$SEQN
+
+MIMS_sum_G <- do.call(rbind, lapply(updated_seqn_list_G,RollingMIMS,acth=acth_long_G_min))
+
+
+wave_data_G <- list(acth_down_G[to_keep_inds_G,],lux_down_G[to_keep_inds_G,],
+                    covariate_df_G[to_keep_inds_G,],MIMS_sum_G)
+if (!day_bool){
+  save(wave_data_G,file = "Wavedata_G.rda")
+} else{
+  save(wave_data_G,file = "WavedataALT_G.rda")
+}
+  
+
+```

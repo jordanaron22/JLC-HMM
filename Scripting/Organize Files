@@ -1,0 +1,39 @@
+mkdir NS1 
+mkdir NS2
+mkdir NS3
+mkdir NS4
+mkdir NS5
+mkdir NS6
+mkdir NS7
+mkdir NS8
+mkdir NS9
+
+mv *NoSurv*Mix1*.rda NS1
+mv *NoSurv*Mix2*.rda NS2
+mv *NoSurv*Mix3*.rda NS3
+mv *NoSurv*Mix4*.rda NS4
+mv *NoSurv*Mix5*.rda NS5
+mv *NoSurv*Mix6*.rda NS6
+mv *NoSurv*Mix7*.rda NS7
+mv *NoSurv*Mix8*.rda NS8
+mv *NoSurv*Mix9*.rda NS9
+
+mkdir 1
+mkdir 2
+mkdir 3
+mkdir 4
+mkdir 5
+mkdir 6
+mkdir 7
+mkdir 8
+mkdir 9
+
+mv *Mix1*.rda 1
+mv *Mix2*.rda 2
+mv *Mix3*.rda 3
+mv *Mix4*.rda 4
+mv *Mix5*.rda 5
+mv *Mix6*.rda 6
+mv *Mix7*.rda 7
+mv *Mix8*.rda 8
+mv *Mix9*.rda 9

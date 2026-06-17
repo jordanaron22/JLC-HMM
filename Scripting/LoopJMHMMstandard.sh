@@ -1,0 +1,25 @@
+#!/bin/bash -l
+
+TimeArray=("0" "36" "48" "48" "96" "96" "96" "144" "144" "144")
+MemArray=("0" "10" "10" "15" "20" "20" "25" "25" "30" "30" )
+for surv in 2 0; do
+    for RE_num in 4 1 2 3 5 6 7 8 9; do
+        for real_data in 1; do
+            for bootstrap in 0; do
+                for randomize_init in 0; do
+                    for leave_out in 0; do
+                        for load_data in 1; do
+                            for incl_light in 1; do
+                                for wake_sleep in 0; do
+                                    sbatch --time="${TimeArray[$RE_num]}":00:00 --mem="${MemArray[$RE_num]}"gb SubLoopJMHMM.sh $RE_num $surv $real_data $bootstrap $randomize_init $leave_out $load_data $incl_light $wake_sleep 
+                                done
+                            done
+                        done
+                    done
+                done
+            done
+        done
+    done
+done
+
+
