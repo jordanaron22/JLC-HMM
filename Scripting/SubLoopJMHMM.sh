@@ -2,7 +2,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --mail-type=NONE
-#SBATCH --array=1-100
+#SBATCH --array=1-10
 #SBATCH -o LogFiles/%A_%a.out
 #SBATCH -e LogFiles/%A_%a.err
 fit_mix_num=$1

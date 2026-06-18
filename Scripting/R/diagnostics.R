@@ -1,15 +1,48 @@
-#calculates BIC
-CalcBIC <- function(new_likelihood,mix_num,act,light){
+# Counts identifiable parameters that are updated by the current model.
+CountModelParameters <- function(mix_num,vcovar_num,nu_covar_num,
+                                 incl_act,incl_light,joint_model,surv_coef){
+  state_num <- NUM_MARKOV_STATES
+  marker_num <- as.integer(incl_act) + as.integer(incl_light)
 
-  #init tran emit pi surv
-  num_of_param <- mix_num +
-    mix_num*6*2 +
-    mix_num*4*2*2+
-    (mix_num-1)*2 +
-    mix_num-1 + 1
+  parameter_count <- c(
+    initial_state = mix_num * (state_num - 1),
+    transition = mix_num * vcovar_num * state_num *
+      (state_num - 1) * 3,
+    emission = marker_num * mix_num * vcovar_num * state_num * 2,
+    correlation = as.integer(incl_act && incl_light) *
+      mix_num * vcovar_num * state_num,
+    class_membership = (mix_num - 1) * nu_covar_num,
+    survival_class = 0,
+    survival_covariates = 0
+  )
 
-  bic <- num_of_param * log(sum(!is.na(act)) + sum(!is.na(light))) - (2 * new_likelihood)
-  return(bic)
+  if (joint_model){
+    if (length(surv_coef) == 0){
+      stop("surv_coef is required when counting joint-model parameters")
+    }
+    parameter_count[["survival_class"]] <- mix_num - 1
+    # The first survival covariate is continuous. Remaining coefficient
+    # vectors use their first category as the reference level.
+    parameter_count[["survival_covariates"]] <-
+      1 + sum(pmax(lengths(surv_coef[-1]) - 1,0))
+  }
+
+  # The Breslow baseline hazard is profiled rather than included in this
+  # regression-parameter count. Its dimension is constant across class counts
+  # fitted to the same data, so it does not affect which class count minimizes BIC.
+  c(parameter_count,total = sum(parameter_count))
+}
+
+# The likelihood is a sum over independent participants, so BIC uses the
+# number of participants rather than the number of repeated measurements.
+CalcBIC <- function(new_likelihood,num_of_people,parameter_count){
+  if (num_of_people < 1){
+    stop("num_of_people must be positive")
+  }
+  if (parameter_count < 1){
+    stop("parameter_count must be positive")
+  }
+  parameter_count * log(num_of_people) - (2 * new_likelihood)
 }
 
 #needed to calculate prob of censoring for brier score

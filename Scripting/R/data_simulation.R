@@ -162,7 +162,7 @@ SimulateHMM <- function(day_length,num_of_people,init,params_tran_array,
                           ncol = num_of_people)
 
   activity_matrix[act_missing==1] <- NA
-  light_missing[light_missing==1] <- NA
+  light_matrix[light_missing==1] <- NA
 
 
 

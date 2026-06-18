@@ -326,7 +326,7 @@ emit_light[,2,,] <- abs(emit_light[,2,,])
 #makes sure correlation makes sense
 corr_mat <- corr_mat_start + runif(length(unlist(corr_mat_start)),-randomize_init/5,randomize_init/5)
 corr_mat[corr_mat>.99] <- .99
-corr_mat[corr_mat<-.99] <- -.99
+corr_mat[corr_mat < -0.99] <- -0.99
 
 #makes sure first val is always reference
 beta_vec <- beta_vec_start + runif(mix_num,-randomize_init,randomize_init)
@@ -1155,11 +1155,9 @@ if (real_data | save_space){
 #mixture predections
 mix_assignment <- apply(re_prob,1,which.max)
 if (!real_data){
-  true_class <- factor(c(as.vector(mixture_mat),seq_len(true_mix_num)), levels = seq_len(true_mix_num))
-  fitted_class <- factor(c(mix_assignment,seq_len(fit_mix_num)), levels = seq_len(fit_mix_num))
+  true_class <- factor(as.vector(mixture_mat),levels = seq_len(true_mix_num))
+  fitted_class <- factor(mix_assignment,levels = seq_len(fit_mix_num))
   tab <- table(true_class,fitted_class)
-  diag_ind <- seq_len(min(nrow(tab),ncol(tab)))
-  tab[cbind(diag_ind,diag_ind)] <- tab[cbind(diag_ind,diag_ind)] - 1
 } else {
   fitted_class <- factor(c(mix_assignment,seq_len(fit_mix_num)), levels = seq_len(fit_mix_num))
   tab <- table(fitted_class,fitted_class)
@@ -1176,14 +1174,34 @@ if (save_space){
 
 #diagnostics
 ibs2 <- CalcIBS2(surv_time,surv_event,cbline_vec,beta_vec,re_prob,surv_covar_risk_vec)
-ibs <- CalcIBS(surv_time,surv_event,cbline_vec,beta_vec,surv_coef,surv_covar,re_prob,incl_surv,mix_assignment_pred,surv_covar_risk_vec)
+ibs <- CalcIBS(surv_time,surv_event,cbline_vec,beta_vec,surv_coef,surv_covar,
+               re_prob,incl_surv,mix_assignment,surv_covar_risk_vec)
 cindex <- CalcCindex(surv_time,surv_event,beta_vec,surv_coef,re_prob,surv_covar,surv_covar_risk_vec)
 diagnostics <- make_diagnostics_list(cindex = cindex,
                                      ibs = ibs,
                                      confusion_table = tab,
                                      ibs2 = ibs2)
 #save everything
-bic <- CalcBIC(new_likelihood,mix_num,act,light)
+bic_parameter_count <- CountModelParameters(
+  mix_num = mix_num,
+  vcovar_num = vcovar_num,
+  nu_covar_num = ncol(nu_covar_mat),
+  incl_act = incl_act,
+  incl_light = incl_light,
+  joint_model = incl_surv == MODEL_TYPE_CODES[["joint"]],
+  surv_coef = surv_coef
+)
+diagnostics$bic_parameter_count <- bic_parameter_count[["total"]]
+diagnostics$bic_parameter_breakdown <- bic_parameter_count
+bic_sample_size <- ncol(act)
+diagnostics$bic_sample_size <- bic_sample_size
+diagnostics$bic_likelihood <- if (incl_surv == MODEL_TYPE_CODES[["joint"]]){
+  "joint"
+} else {
+  "longitudinal_only"
+}
+bic <- CalcBIC(new_likelihood,bic_sample_size,
+               bic_parameter_count[["total"]])
 to_save <- make_saved_results(true_params = true_params,
                               est_params = est_params,
                               bic = bic,
