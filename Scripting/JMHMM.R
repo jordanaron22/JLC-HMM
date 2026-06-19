@@ -72,6 +72,9 @@ missing_perc <- sim_config$missing_perc
 
 
 true_param_list <- CreateDefaultParams(true_mix_num, vcovar_num)
+if (!real_data){
+  true_param_list <- ApplyEmissionOverlap(true_param_list,emission_overlap)
+}
 validate_param_list(true_param_list,true_mix_num,vcovar_num,"true_param_list")
 init_true <- true_param_list$init
 params_tran_array_true <- true_param_list$params_tran_array
@@ -220,6 +223,33 @@ if (!real_data){
   #in simulated data sample weights are set to 0
   log_sweights_vec <- numeric(dim(act)[2])
   
+  # Independent test data for out-of-sample survival diagnostics.
+  simulated_hmm_test <- SimulateHMM(
+    day_length,num_of_people,
+    init = init_true,params_tran_array = params_tran_array_true,
+    emit_act = emit_act_true,emit_light = emit_light_true,
+    corr_mat = corr_mat_true,
+    lod_act = lod_act_true,lod_light = lod_light_true,
+    nu_mat = nu_mat_true,
+    beta_age_true = beta_age_true,beta_covar_sim = beta_covar_sim,
+    missing_perc = missing_perc,beta_vec_true = beta_vec_true,
+    lambda_act_mat = lambda_act_mat_true,
+    lambda_light_mat = lambda_light_mat_true,
+    true_mix_num = true_mix_num
+  )
+  test_data <- list(
+    act = simulated_hmm_test$act,
+    light = simulated_hmm_test$light,
+    nu_covar_mat = simulated_hmm_test$nu_covar_mat,
+    vcovar_mat = simulated_hmm_test$vcovar_mat,
+    surv_time = simulated_hmm_test$survival$time,
+    surv_event = simulated_hmm_test$survival$event,
+    surv_covar = list(
+      simulated_hmm_test$age_vec,
+      Vec2Mat(simulated_hmm_test$surv_covar_sim)
+    )
+  )
+  rm(simulated_hmm_test)
   
 } 
 ###### Read in Data ###### 
@@ -849,6 +879,28 @@ while((abs(like_diff) > em_control$convergence_tolerance |
   
 } # end EM loop
 
+likelihood_changes <- diff(likelihood_vec)
+em_convergence <- list(
+  em_was_run = !em_control$run_only_survival,
+  converged = if (em_control$run_only_survival){
+    NA
+  } else {
+    is.finite(like_diff) &&
+      abs(like_diff) <= em_control$convergence_tolerance &&
+      iter_count >= em_control$minimum_iterations
+  },
+  completed_iterations = length(time_vec),
+  iteration_counter = iter_count,
+  final_likelihood = new_likelihood,
+  final_likelihood_change = like_diff,
+  convergence_tolerance = em_control$convergence_tolerance,
+  minimum_iterations = em_control$minimum_iterations,
+  likelihood_history = likelihood_vec,
+  iteration_seconds = time_vec,
+  total_iteration_seconds = sum(time_vec),
+  likelihood_decrease_count = sum(likelihood_changes < 0,na.rm = TRUE)
+)
+
 #if 2-stage model, calculate survival here
 if (incl_surv != MODEL_TYPE_CODES[["joint"]]){
   survival_context <- update_survival_context_re_prob(survival_context,
@@ -877,8 +929,8 @@ if (incl_surv != MODEL_TYPE_CODES[["joint"]]){
 
 
 
-#if LOCV we don't care about viterbi decoding
-if(!leave_out){
+# Viterbi decoding is not needed for leave-out or class-selection diagnostics.
+if(!leave_out && !class_selection_run){
   decoded_mat <- Viterbi(act,light,vcovar_mat)
   
   
@@ -1121,7 +1173,10 @@ if (leave_out){
     conf_mat_ind <- table(mix_assignment_pred,mix_assignment_true_ind)
     diag(conf_mat_ind) <- diag(conf_mat_ind) - 1
     
-    cindex <- CalcCindex(surv_time_new,surv_event_new,beta_vec,surv_coef,re_prob_new,new_surv_covar,surv_covar_risk_vec_new)
+    cindex <- CalcCindex(
+      surv_time_new,surv_event_new,beta_vec,re_prob_new,
+      surv_covar_risk_vec_new
+    )
     ibs <- CalcIBS(surv_time_new,surv_event_new,cbline_vec,beta_vec,surv_coef,new_surv_covar,re_prob_new,incl_surv,mix_assignment_pred,surv_covar_risk_vec_new)
     ibs2 <- CalcIBS2(surv_time_new,surv_event_new,cbline_vec,beta_vec,re_prob_new,surv_covar_risk_vec_new)
   
@@ -1176,11 +1231,68 @@ if (save_space){
 ibs2 <- CalcIBS2(surv_time,surv_event,cbline_vec,beta_vec,re_prob,surv_covar_risk_vec)
 ibs <- CalcIBS(surv_time,surv_event,cbline_vec,beta_vec,surv_coef,surv_covar,
                re_prob,incl_surv,mix_assignment,surv_covar_risk_vec)
-cindex <- CalcCindex(surv_time,surv_event,beta_vec,surv_coef,re_prob,surv_covar,surv_covar_risk_vec)
+cindex <- CalcCindex(
+  surv_time,surv_event,beta_vec,re_prob,surv_covar_risk_vec
+)
 diagnostics <- make_diagnostics_list(cindex = cindex,
                                      ibs = ibs,
                                      confusion_table = tab,
                                      ibs2 = ibs2)
+diagnostics$training <- list(cindex = cindex,ibs = ibs)
+diagnostics$convergence <- em_convergence
+diagnostics$viterbi_skipped <- leave_out || class_selection_run
+
+if (!real_data){
+  final_re_prob <- CalcProbRE(alpha,pi_l)
+  diagnostics$class_entropy <- CalcClassEntropy(final_re_prob)
+
+  test_act <- test_data$act
+  test_light <- test_data$light
+  if (!incl_act){test_act[,] <- NA}
+  if (!incl_light){test_light[,] <- NA}
+
+  test_pi_l <- CalcPi(nu_mat,test_data$nu_covar_mat)
+  test_tran_list <- GenTranList(
+    params_tran_array,seq_len(nrow(test_act)),mix_num,vcovar_num,
+    period_len = period_len
+  )
+  test_surv_covar_risk_vec <- SurvCovarRiskVec(
+    test_data$surv_covar,surv_coef
+  )
+  test_alpha <- Forward(
+    act = test_act,light = test_light,
+    init = init,tran_list = test_tran_list,
+    emit_act = emit_act,emit_light = emit_light,
+    lod_act = lod_act,lod_light = lod_light,
+    corr_mat = corr_mat,beta_vec = beta_vec,surv_coef = surv_coef,
+    surv_covar_risk_vec = test_surv_covar_risk_vec,
+    event_vec = numeric(ncol(test_act)),
+    bline_vec = numeric(ncol(test_act)),
+    cbline_vec = numeric(ncol(test_act)),
+    lintegral_mat = lintegral_mat,
+    log_sweights_vec = numeric(ncol(test_act)),
+    surv_covar = test_data$surv_covar,
+    vcovar_mat = test_data$vcovar_mat,
+    lambda_act_mat = lambda_act_mat,
+    lambda_light_mat = lambda_light_mat,
+    tobit = tobit,incl_surv = MODEL_TYPE_CODES[["two_stage"]],
+    beta_bool = FALSE,mix_num = mix_num
+  )
+  test_re_prob <- CalcProbRE(test_alpha,test_pi_l)
+  test_mix_assignment <- apply(test_re_prob,1,which.max)
+  test_cindex <- CalcCindex(
+    test_data$surv_time,test_data$surv_event,beta_vec,test_re_prob,
+    test_surv_covar_risk_vec
+  )
+  test_ibs <- CalcIBS(
+    test_data$surv_time,test_data$surv_event,cbline_vec,beta_vec,
+    surv_coef,test_data$surv_covar,test_re_prob,incl_surv,
+    test_mix_assignment,test_surv_covar_risk_vec,
+    baseline_surv_time = surv_time
+  )
+  diagnostics$test <- list(cindex = test_cindex,ibs = test_ibs)
+}
+
 #save everything
 bic_parameter_count <- CountModelParameters(
   mix_num = mix_num,
@@ -1202,6 +1314,9 @@ diagnostics$bic_likelihood <- if (incl_surv == MODEL_TYPE_CODES[["joint"]]){
 }
 bic <- CalcBIC(new_likelihood,bic_sample_size,
                bic_parameter_count[["total"]])
+aic <- CalcAIC(new_likelihood,bic_parameter_count[["total"]])
+diagnostics$aic_parameter_count <- bic_parameter_count[["total"]]
+diagnostics$aic_likelihood <- diagnostics$bic_likelihood
 to_save <- make_saved_results(true_params = true_params,
                               est_params = est_params,
                               bic = bic,
@@ -1209,9 +1324,9 @@ to_save <- make_saved_results(true_params = true_params,
                               simulated_hmm = simulated_hmm,
                               diagnostics = diagnostics,
                               settings = settings,
-                              start_params = start_params)
-setwd("/gpfs/gsfs12/users/aronjr/JM/Routputs")
-#"~/JM/Routputs"
+                              start_params = start_params,
+                              aic = aic)
+output_dir <- if (dir.exists("Routputs")){"Routputs"} else {"."}
 # model_name <- paste0("ReRun",model_name)
-save(to_save,file = model_name)
+save(to_save,file = file.path(output_dir,model_name))
 

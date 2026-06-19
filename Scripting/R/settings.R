@@ -13,14 +13,16 @@ default_settings <- list(
   periods_per_day = DEFAULT_PERIODS_PER_DAY,
   num_day_type_levels = WEEKDAY_LEVELS,
   # Command-line defaults used when not running through bash/slurm.
-  fit_mix_num = 5,
-  true_mix_num = NA_real_, # set to  NA_real_ to match fit_mix_num by default
+  fit_mix_num = 2,
+  true_mix_num = 5, # set to  NA_real_ to match fit_mix_num by default
   model_type = "joint", # "joint", "two_stage"
   data_source = "simulation", #"nhanes" or "simulation"
   run_bootstrap = FALSE,
-  init_jitter_scale = 0,
+  init_jitter_scale = 0.1,
   run_leave_one_out_cv = FALSE,
   use_hot_start = FALSE,
+  class_selection_run = FALSE,
+  emission_overlap = "low",
   # Compact simulation scenario code used by the shell grid.
   sim_scenario = -1
 )
@@ -94,7 +96,10 @@ build_settings <- function(cli_args = commandArgs(TRUE),
     run_leave_one_out_cv = get_arg(cli_args,CLI_ARG$run_leave_one_out_cv),
     use_hot_start = get_arg(cli_args,CLI_ARG$use_hot_start),
     sim_scenario = get_numeric_arg(cli_args,CLI_ARG$sim_scenario),
-    true_mix_num = get_numeric_arg(cli_args,CLI_ARG$true_mix_num)
+    true_mix_num = get_numeric_arg(cli_args,CLI_ARG$true_mix_num),
+    save_reduced_output = get_arg(cli_args,CLI_ARG$save_reduced_output),
+    class_selection_run = get_arg(cli_args,CLI_ARG$class_selection_run),
+    emission_overlap = get_arg(cli_args,CLI_ARG$emission_overlap)
   )
 
   for (setting_name in names(command_settings)){
@@ -104,7 +109,8 @@ build_settings <- function(cli_args = commandArgs(TRUE),
   }
 
   settings <- validate_settings(settings, MODEL_TYPE_CODES, DATA_SOURCE,
-                                WEEKDAY_CODES, SIM_SCENARIOS)
+                                WEEKDAY_CODES, SIM_SCENARIOS,
+                                EMISSION_OVERLAP_FACTOR)
 
   if (is.na(settings$true_mix_num)){
     settings$true_mix_num <- settings$fit_mix_num
@@ -113,9 +119,19 @@ build_settings <- function(cli_args = commandArgs(TRUE),
   add_legacy_settings(settings)
 }
 
+format_setting_label <- function(value){
+  value <- as.character(value)
+  paste0(toupper(substr(value,1,1)),substr(value,2,nchar(value)))
+}
+
 build_model_name <- function(settings){
   model_name <- "JMHMM"
   if (!settings$real_data){model_name <- paste0(model_name,"SimSize",settings$sim_size)}
+  if (!settings$real_data){
+    model_name <- paste0(
+      model_name,"Overlap",format_setting_label(settings$emission_overlap)
+    )
+  }
   if (settings$bootstrap){model_name <- paste0(model_name,"Bootstrap")}
   if (settings$leave_out){model_name <- paste0(model_name,"LeaveOut")}
   if (settings$incl_surv == MODEL_TYPE_CODES[["two_stage"]]){model_name <- paste0(model_name,"NoSurv")}
@@ -125,6 +141,8 @@ build_model_name <- function(settings){
   if (settings$single_day){model_name <- paste0(model_name,"SingleDay",settings$single_day)}
   if (settings$randomize_init){model_name <- paste0(model_name,"RandInit")}
   if (settings$load_data){model_name <- paste0(model_name,"LoadIn")}
+  if (settings$class_selection_run){model_name <- paste0(model_name,"ClassSelection")}
+  if (settings$save_reduced_output){model_name <- paste0(model_name,"Reduced")}
 
   if (settings$real_data){
     paste0(model_name,"FitMix",settings$fit_mix_num,"Seed",

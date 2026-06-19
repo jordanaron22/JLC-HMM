@@ -320,13 +320,14 @@ CalcBeta <- function(beta_surv_coef, combined_covar_mat,surv_covar_risk_vec,
 CalcS <- function(event_time,cbline_vec_new,beta_vec,re_prob,surv_covar_risk_vec){
   surv_mat_ind <- matrix(NA,length(event_time),dim(re_prob)[1])
   surv_vec <- numeric(length(event_time))
+  fitted_mix_num <- ncol(re_prob)
 
   for (ind in 1:dim(re_prob)[1]){
     for (t in 1:length(event_time)){
       rs <- 0
 
 
-      for (re_ind in 1:mix_num){
+      for (re_ind in 1:fitted_mix_num){
         rs <- rs + exp(-cbline_vec_new[t]* exp(beta_vec[re_ind]+surv_covar_risk_vec[ind])) * re_prob[ind,re_ind]
       }
 

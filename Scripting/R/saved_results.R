@@ -81,7 +81,7 @@ make_est_param_list <- function(init, params_tran_array, emit_act, emit_light,
 make_saved_results <- function(true_params, est_params, bic = NULL,
                                leave_out = list(), simulated_hmm = list(),
                                diagnostics = list(), settings = NULL,
-                               start_params = NULL){
+                               start_params = NULL, aic = NULL){
   list(true_params = true_params,
        est_params = est_params,
        bic = bic,
@@ -89,7 +89,8 @@ make_saved_results <- function(true_params, est_params, bic = NULL,
        simulated_hmm = simulated_hmm,
        diagnostics = diagnostics,
        settings = settings,
-       start_params = start_params)
+       start_params = start_params,
+       aic = aic)
 }
 
 make_simulated_hmm_list <- function(mc, act, light, mixture_mat, age_vec,

@@ -98,3 +98,47 @@ CreateDefaultParams <- function(param_mix_num, vcovar_num){
        lambda_act_mat = lambda_act_mat,
        lambda_light_mat = lambda_light_mat)
 }
+
+shrink_toward_mean <- function(values, overlap_factor){
+  if (length(values) <= 1){
+    return(values)
+  }
+  mean(values) + overlap_factor * (values - mean(values))
+}
+
+ApplyEmissionOverlap <- function(param_list, emission_overlap,
+                                 overlap_factor = EMISSION_OVERLAP_FACTOR){
+  if (!emission_overlap %in% names(overlap_factor)){
+    stop(paste("emission_overlap must be one of:",
+               paste(names(overlap_factor),collapse = ", ")))
+  }
+  factor_value <- unname(overlap_factor[[emission_overlap]])
+  if (is.na(factor_value) || factor_value < 0 || factor_value > 1){
+    stop("emission overlap factor must be between 0 and 1")
+  }
+  if (factor_value == 1){
+    return(param_list)
+  }
+
+  for (state_ind in seq_len(dim(param_list$emit_act)[1])){
+    for (day_type_ind in seq_len(dim(param_list$emit_act)[4])){
+      param_list$emit_act[state_ind,1,,day_type_ind] <-
+        shrink_toward_mean(param_list$emit_act[state_ind,1,,day_type_ind],
+                           factor_value)
+      param_list$emit_light[state_ind,1,,day_type_ind] <-
+        shrink_toward_mean(param_list$emit_light[state_ind,1,,day_type_ind],
+                           factor_value)
+      param_list$emit_act[state_ind,2,,day_type_ind] <-
+        shrink_toward_mean(param_list$emit_act[state_ind,2,,day_type_ind],
+                           factor_value)
+      param_list$emit_light[state_ind,2,,day_type_ind] <-
+        shrink_toward_mean(param_list$emit_light[state_ind,2,,day_type_ind],
+                           factor_value)
+      param_list$corr_mat[,state_ind,day_type_ind] <-
+        shrink_toward_mean(param_list$corr_mat[,state_ind,day_type_ind],
+                           factor_value)
+    }
+  }
+
+  param_list
+}

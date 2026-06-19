@@ -45,6 +45,13 @@ CalcBIC <- function(new_likelihood,num_of_people,parameter_count){
   parameter_count * log(num_of_people) - (2 * new_likelihood)
 }
 
+CalcAIC <- function(new_likelihood,parameter_count){
+  if (parameter_count < 1){
+    stop("parameter_count must be positive")
+  }
+  (2 * parameter_count) - (2 * new_likelihood)
+}
+
 #needed to calculate prob of censoring for brier score
 Vec2StepPlot <- function(cens_dist,cens_dist_time,t_i){
   for (i in 1:(length(cens_dist_time)-1)){
@@ -59,6 +66,7 @@ Vec2StepPlot <- function(cens_dist,cens_dist_time,t_i){
 #calculates bries score
 BrierScore <- function(bs_t,surv_event,surv_time,cens_dist,cens_dist_time,surv_mat_ind,event_time){
   bs_sum <- 0
+  num_of_people <- length(surv_time)
   cens_dist[length(cens_dist)] <- cens_dist[length(cens_dist)-1]
 
   for (ind in 1:num_of_people){
@@ -88,50 +96,81 @@ vBrierScore <- Vectorize(BrierScore,vectorize.args = "bs_t")
 
 
 #calculates c-index
-CalcCindex <- function(surv_time,surv_event,beta_vec,surv_coef,re_prob,surv_covar,surv_covar_risk_vec){
+CalcCindex <- function(surv_time,surv_event,beta_vec,re_prob,
+                       surv_covar_risk_vec){
+  risk_score <- drop(re_prob %*% beta_vec) + surv_covar_risk_vec
   denom <- 0
   num <- 0
-  for (j in 1:length(surv_time)){
-
-
-    for (i in 1:length(surv_time)){
-      if (surv_event[j] == 1){
-        if (i != j){
-
-          risk_i <- (re_prob[i,] %*% beta_vec)+surv_covar_risk_vec[i]
-          risk_j <- (re_prob[j,] %*% beta_vec)+surv_covar_risk_vec[j]
-
-          if (surv_time[i] > surv_time[j]){
-            denom <- denom + 1
-
-            if (risk_j > risk_i){
-              num <- num + 1
-            }
-
-          }
-
-
-        }
-      }
-
-    }
+  for (j in which(surv_event == 1)){
+    comparable <- surv_time > surv_time[j]
+    denom <- denom + sum(comparable)
+    num <- num + sum(risk_score[j] > risk_score[comparable])
   }
 
   return(num/denom)
 }
 
-#official implementation with survex package
-CalcIBS <- function(surv_time,surv_event,cbline_vec,beta_vec,surv_coef,surv_covar,re_prob,incl_surv,mix_assignment,surv_covar_risk_vec){
-  event_time <- unique(sort(surv_time))
-  cbline_vec_new <- unique(sort(cbline_vec))
-  # cbline_vec_new <- basehaz(cox1,centered = F)[,1]
-
-  stime_vec <- c()
-  for (stime in event_time){
-    stime_vec <- c(stime_vec,which(surv_time == stime)[1])
+CalcClassEntropy <- function(re_prob){
+  if (is.null(dim(re_prob)) || length(dim(re_prob)) != 2){
+    stop("re_prob must be a matrix")
+  }
+  if (any(!is.finite(re_prob)) || any(re_prob < 0)){
+    stop("re_prob must contain finite, nonnegative probabilities")
   }
 
-  cbline_vec_new <- cbline_vec[stime_vec]
+  probability_sums <- rowSums(re_prob)
+  if (any(probability_sums <= 0)){
+    stop("Each row of re_prob must have positive probability mass")
+  }
+  normalized_prob <- re_prob / probability_sums
+  class_num <- ncol(normalized_prob)
+
+  if (class_num == 1){
+    return(list(
+      normalized_mean = NA_real_,
+      normalized_median = NA_real_,
+      normalized_q25 = NA_real_,
+      normalized_q75 = NA_real_,
+      mean_max_posterior = 1
+    ))
+  }
+
+  log_prob <- matrix(0,nrow(normalized_prob),ncol(normalized_prob))
+  positive_prob <- normalized_prob > 0
+  log_prob[positive_prob] <- log(normalized_prob[positive_prob])
+  normalized_entropy <-
+    -rowSums(normalized_prob * log_prob) / log(class_num)
+
+    return(mean(normalized_entropy))
+}
+
+# Evaluates the fitted cumulative baseline hazard on a new time grid.
+BaselineHazardAtTimes <- function(baseline_surv_time,cbline_vec,prediction_times){
+  if (length(baseline_surv_time) != length(cbline_vec)){
+    stop("baseline_surv_time and cbline_vec must have the same length")
+  }
+
+  baseline_times <- sort(unique(baseline_surv_time))
+  baseline_values <- vapply(
+    baseline_times,
+    function(time) max(cbline_vec[baseline_surv_time == time]),
+    numeric(1)
+  )
+  time_index <- findInterval(prediction_times,baseline_times)
+  prediction_hazard <- numeric(length(prediction_times))
+  prediction_hazard[time_index > 0] <-
+    baseline_values[time_index[time_index > 0]]
+  prediction_hazard
+}
+
+#official implementation with survex package
+CalcIBS <- function(surv_time,surv_event,cbline_vec,beta_vec,surv_coef,
+                    surv_covar,re_prob,incl_surv,mix_assignment,
+                    surv_covar_risk_vec,baseline_surv_time = surv_time){
+  event_time <- unique(sort(surv_time))
+  cbline_vec_new <- BaselineHazardAtTimes(
+    baseline_surv_time,cbline_vec,event_time
+  )
 
   surv_mat_ind <- CalcS(event_time,cbline_vec_new,beta_vec,re_prob,surv_covar_risk_vec)
 
@@ -151,22 +190,17 @@ CalcIBS <- function(surv_time,surv_event,cbline_vec,beta_vec,surv_coef,surv_cova
 }
 
 #manual implementation
-CalcIBS2 <- function(surv_time,surv_event,cbline_vec,beta_vec,re_prob,surv_covar_risk_vec) {
+CalcIBS2 <- function(surv_time,surv_event,cbline_vec,beta_vec,re_prob,
+                     surv_covar_risk_vec,baseline_surv_time = surv_time) {
   km_fit <- survfit(Surv(surv_time, 1 - surv_event) ~ 1)
   cens_dist <- c(1,summary(km_fit)$surv)
   cens_dist_time <- c(0,summary(km_fit)$time)
   G <- stepfun(km_fit$time, c(1, km_fit$surv))
 
   event_time <- unique(sort(surv_time))
-  cbline_vec_new <- unique(sort(cbline_vec))
-  # cbline_vec_new <- basehaz(cox1,centered = F)[,1]
-
-  stime_vec <- c()
-  for (stime in event_time){
-    stime_vec <- c(stime_vec,which(surv_time == stime)[1])
-  }
-
-  cbline_vec_new <- cbline_vec[stime_vec]
+  cbline_vec_new <- BaselineHazardAtTimes(
+    baseline_surv_time,cbline_vec,event_time
+  )
 
   surv_mat_ind <- CalcS(event_time,cbline_vec_new,beta_vec,re_prob,surv_covar_risk_vec)
 

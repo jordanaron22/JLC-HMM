@@ -31,7 +31,8 @@ normalize_target_weekday <- function(target_weekday, weekday_codes){
 }
 
 validate_settings <- function(settings, model_type_codes, data_source_values,
-                              weekday_codes, sim_scenarios){
+                              weekday_codes, sim_scenarios,
+                              emission_overlap_factor){
   settings$fit_mix_num <- as.numeric(settings$fit_mix_num)
   settings$true_mix_num <- as.numeric(settings$true_mix_num)
   validate_count_setting(settings$fit_mix_num,"fit_mix_num")
@@ -52,7 +53,8 @@ validate_settings <- function(settings, model_type_codes, data_source_values,
                              "use_hot_start","use_seed","include_activity",
                              "include_light","check_transition_update",
                              "weekend_only","save_reduced_output",
-                             "survival_only","include_tlogmims")
+                             "survival_only","include_tlogmims",
+                             "class_selection_run")
   for (setting_name in logical_setting_names){
     settings[[setting_name]] <- strict_logical_setting(settings[[setting_name]],setting_name)
   }
@@ -71,6 +73,11 @@ validate_settings <- function(settings, model_type_codes, data_source_values,
   if (is.na(settings$sim_scenario) ||
       !as.character(settings$sim_scenario) %in% names(sim_scenarios)){
     stop(paste("sim_scenario must be one of:",paste(names(sim_scenarios),collapse = ", ")))
+  }
+  settings$emission_overlap <- as.character(settings$emission_overlap)
+  if (!settings$emission_overlap %in% names(emission_overlap_factor)){
+    stop(paste("emission_overlap must be one of:",
+               paste(names(emission_overlap_factor),collapse = ", ")))
   }
 
   settings

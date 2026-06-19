@@ -7,7 +7,10 @@ CLI_ARG <- list(
   run_leave_one_out_cv = 6,
   use_hot_start = 7,
   sim_scenario = 8,
-  true_mix_num = 9
+  true_mix_num = 9,
+  save_reduced_output = 10,
+  class_selection_run = 11,
+  emission_overlap = 12
 )
 
 MODEL_TYPE_CODES <- c(two_stage = 0, joint = 2)
@@ -35,6 +38,8 @@ REORDER_STOP_CRIT_MULTIPLIER <- 10
 # recompute baseline hazards, forward/backward probabilities, and likelihood.
 JOINT_BETA_STOP_CRIT <- 100
 
+EMISSION_OVERLAP_FACTOR <- c(low = 1, high = 0.25)
+
 SIM_SCENARIOS <- list(
   `-1` = list(days = 1, num_people = 600, missing_perc = 0.2),
   `0` = list(days = 1, num_people = 6000, missing_perc = 0.2),
@@ -47,7 +52,7 @@ SIM_SCENARIOS <- list(
 
 SAVED_SECTION_SLOT <- c(true_params = 1, est_params = 2, bic = 3,
                         leave_out = 4, simulated_hmm = 5, diagnostics = 6,
-                        settings = 7, start_params = 8)
+                        settings = 7, start_params = 8, aic = 9)
 
 PARAM_SLOT <- c(init = 1, params_tran_array = 2, emit_act = 3,
                 emit_light = 4, corr_mat = 5, nu_mat = 6,
