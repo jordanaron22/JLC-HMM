@@ -6,11 +6,12 @@ CLI_ARG <- list(
   init_jitter_scale = 5,
   run_leave_one_out_cv = 6,
   use_hot_start = 7,
-  sim_scenario = 8,
-  true_mix_num = 9,
-  save_reduced_output = 10,
-  class_selection_run = 11,
-  emission_overlap = 12
+  simulation_days = 8,
+  num_people = 9,
+  true_mix_num = 10,
+  save_reduced_output = 11,
+  class_selection_run = 12,
+  emission_overlap = 13
 )
 
 MODEL_TYPE_CODES <- c(two_stage = 0, joint = 2)
@@ -39,16 +40,9 @@ REORDER_STOP_CRIT_MULTIPLIER <- 10
 JOINT_BETA_STOP_CRIT <- 100
 
 EMISSION_OVERLAP_FACTOR <- c(low = 1, high = 0.25)
-
-SIM_SCENARIOS <- list(
-  `-1` = list(days = 1, num_people = 600, missing_perc = 0.2),
-  `0` = list(days = 1, num_people = 6000, missing_perc = 0.2),
-  `1` = list(days = 3, num_people = 6000, missing_perc = 0.2),
-  `2` = list(days = 7, num_people = 6000, missing_perc = 0.2),
-  `3` = list(days = 1, num_people = 1000, missing_perc = 0.2),
-  `4` = list(days = 3, num_people = 1000, missing_perc = 0.2),
-  `5` = list(days = 7, num_people = 1000, missing_perc = 0.2)
-)
+DEFAULT_SIMULATION_DAYS <- 1
+DEFAULT_SIMULATION_PEOPLE <- 600
+DEFAULT_MISSING_PERC <- 0.2
 
 SAVED_SECTION_SLOT <- c(true_params = 1, est_params = 2, bic = 3,
                         leave_out = 4, simulated_hmm = 5, diagnostics = 6,

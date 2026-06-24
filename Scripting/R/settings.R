@@ -23,8 +23,9 @@ default_settings <- list(
   use_hot_start = FALSE,
   class_selection_run = FALSE,
   emission_overlap = "low",
-  # Compact simulation scenario code used by the shell grid.
-  sim_scenario = -1
+  simulation_days = DEFAULT_SIMULATION_DAYS,
+  num_people = DEFAULT_SIMULATION_PEOPLE,
+  missing_perc = DEFAULT_MISSING_PERC
 )
 
 get_numeric_arg <- function(cli_args, arg_index){
@@ -65,7 +66,6 @@ add_legacy_settings <- function(settings){
   settings$randomize_init <- settings$init_jitter_scale
   settings$leave_out <- as.numeric(settings$run_leave_one_out_cv)
   settings$load_data <- as.numeric(settings$use_hot_start)
-  settings$sim_size <- settings$sim_scenario
   # Legacy alias: most fitted-model calculations still read mix_num internally.
   settings$mix_num <- settings$fit_mix_num
 
@@ -95,7 +95,8 @@ build_settings <- function(cli_args = commandArgs(TRUE),
     init_jitter_scale = get_numeric_arg(cli_args,CLI_ARG$init_jitter_scale),
     run_leave_one_out_cv = get_arg(cli_args,CLI_ARG$run_leave_one_out_cv),
     use_hot_start = get_arg(cli_args,CLI_ARG$use_hot_start),
-    sim_scenario = get_numeric_arg(cli_args,CLI_ARG$sim_scenario),
+    simulation_days = get_numeric_arg(cli_args,CLI_ARG$simulation_days),
+    num_people = get_numeric_arg(cli_args,CLI_ARG$num_people),
     true_mix_num = get_numeric_arg(cli_args,CLI_ARG$true_mix_num),
     save_reduced_output = get_arg(cli_args,CLI_ARG$save_reduced_output),
     class_selection_run = get_arg(cli_args,CLI_ARG$class_selection_run),
@@ -109,8 +110,7 @@ build_settings <- function(cli_args = commandArgs(TRUE),
   }
 
   settings <- validate_settings(settings, MODEL_TYPE_CODES, DATA_SOURCE,
-                                WEEKDAY_CODES, SIM_SCENARIOS,
-                                EMISSION_OVERLAP_FACTOR)
+                                WEEKDAY_CODES, EMISSION_OVERLAP_FACTOR)
 
   if (is.na(settings$true_mix_num)){
     settings$true_mix_num <- settings$fit_mix_num
@@ -126,7 +126,12 @@ format_setting_label <- function(value){
 
 build_model_name <- function(settings){
   model_name <- "JMHMM"
-  if (!settings$real_data){model_name <- paste0(model_name,"SimSize",settings$sim_size)}
+  if (!settings$real_data){
+    model_name <- paste0(
+      model_name,"Days",settings$simulation_days,
+      "People",settings$num_people
+    )
+  }
   if (!settings$real_data){
     model_name <- paste0(
       model_name,"Overlap",format_setting_label(settings$emission_overlap)

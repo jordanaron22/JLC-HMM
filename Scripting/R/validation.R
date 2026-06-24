@@ -31,8 +31,7 @@ normalize_target_weekday <- function(target_weekday, weekday_codes){
 }
 
 validate_settings <- function(settings, model_type_codes, data_source_values,
-                              weekday_codes, sim_scenarios,
-                              emission_overlap_factor){
+                              weekday_codes, emission_overlap_factor){
   settings$fit_mix_num <- as.numeric(settings$fit_mix_num)
   settings$true_mix_num <- as.numeric(settings$true_mix_num)
   validate_count_setting(settings$fit_mix_num,"fit_mix_num")
@@ -63,16 +62,21 @@ validate_settings <- function(settings, model_type_codes, data_source_values,
   settings$periods_per_day <- as.numeric(settings$periods_per_day)
   settings$num_day_type_levels <- as.numeric(settings$num_day_type_levels)
   settings$init_jitter_scale <- as.numeric(settings$init_jitter_scale)
-  settings$sim_scenario <- as.numeric(settings$sim_scenario)
+  settings$simulation_days <- as.numeric(settings$simulation_days)
+  settings$num_people <- as.numeric(settings$num_people)
+  settings$missing_perc <- as.numeric(settings$missing_perc)
 
   validate_count_setting(settings$periods_per_day,"periods_per_day")
   validate_count_setting(settings$num_day_type_levels,"num_day_type_levels")
+  validate_count_setting(settings$simulation_days,"simulation_days")
+  validate_count_setting(settings$num_people,"num_people")
   if (is.na(settings$init_jitter_scale) || settings$init_jitter_scale < 0){
     stop(paste("init_jitter_scale must be nonnegative; got:",settings$init_jitter_scale))
   }
-  if (is.na(settings$sim_scenario) ||
-      !as.character(settings$sim_scenario) %in% names(sim_scenarios)){
-    stop(paste("sim_scenario must be one of:",paste(names(sim_scenarios),collapse = ", ")))
+  if (is.na(settings$missing_perc) ||
+      settings$missing_perc < 0 || settings$missing_perc > 1){
+    stop(paste("missing_perc must be between 0 and 1; got:",
+               settings$missing_perc))
   }
   settings$emission_overlap <- as.character(settings$emission_overlap)
   if (!settings$emission_overlap %in% names(emission_overlap_factor)){

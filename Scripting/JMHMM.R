@@ -61,13 +61,8 @@ readCpp( "../Rcode/cFunctions.cpp" )
 ###### True Settings ###### 
 
 #Sets up simulation sizing
-sim_config <- SIM_SCENARIOS[[as.character(sim_size)]]
-if (is.null(sim_config)){
-  stop(paste("Unknown sim_scenario:",sim_size))
-}
-day_length <- period_len * sim_config$days
-num_of_people <- sim_config$num_people
-missing_perc <- sim_config$missing_perc
+day_length <- period_len * simulation_days
+num_of_people <- num_people
 
 
 
