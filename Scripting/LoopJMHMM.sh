@@ -7,23 +7,36 @@ array_end=10
 
 # key: simulation_days|num_people|fit_mix_num|model_type|emission_overlap
 # value: recommended_time_hours memory_limit_gb
+<<<<<<< HEAD
 ResourceLimit["1|5000|5|joint|low"]="8 10"
 ResourceLimit["3|5000|5|joint|low"]="8 10"
 ResourceLimit["7|5000|5|joint|low"]="8 24"
+=======
+ResourceLimit["1|5000|5|joint|low"]="12 10"
+ResourceLimit["3|5000|5|joint|low"]="12 10"
+ResourceLimit["7|5000|5|joint|low"]="12 20"
+>>>>>>> ae20d82bd6fc9474cd60407d4094256349e9fdbe
 
 ResourceLimit["1|5000|5|joint|high"]="13 10"
 ResourceLimit["3|5000|5|joint|high"]="19 10"
-ResourceLimit["7|5000|5|joint|high"]="29 24"
+ResourceLimit["7|5000|5|joint|high"]="29 20"
 
+<<<<<<< HEAD
 ResourceLimit["1|5000|5|two_stage|low"]="8 10"
 ResourceLimit["3|5000|5|two_stage|low"]="8 10"
 ResourceLimit["7|5000|5|two_stage|low"]="8 24"
+=======
+ResourceLimit["1|5000|5|two_stage|low"]="12 10"
+ResourceLimit["3|5000|5|two_stage|low"]="12 10"
+ResourceLimit["7|5000|5|two_stage|low"]="12 20"
+>>>>>>> ae20d82bd6fc9474cd60407d4094256349e9fdbe
 
 ResourceLimit["1|5000|5|two_stage|high"]="12 10"
 ResourceLimit["3|5000|5|two_stage|high"]="19 10"
-ResourceLimit["7|5000|5|two_stage|high"]="28 24"
+ResourceLimit["7|5000|5|two_stage|high"]="28 20"
 
 ResourceLimit["1|5000|2|joint|low"]="8 10"
+<<<<<<< HEAD
 ResourceLimit["1|5000|3|joint|low"]="8 10"
 ResourceLimit["1|5000|4|joint|low"]="8 10"
 ResourceLimit["1|5000|6|joint|low"]="10 10"
@@ -43,6 +56,27 @@ ResourceLimit["7|5000|4|joint|low"]="17 20"
 ResourceLimit["7|5000|6|joint|low"]="35 24"
 ResourceLimit["7|5000|7|joint|low"]="38 28"
 ResourceLimit["7|5000|8|joint|low"]="37 28"
+=======
+ResourceLimit["1|5000|3|joint|low"]="15 10"
+ResourceLimit["1|5000|4|joint|low"]="15 10"
+ResourceLimit["1|5000|6|joint|low"]="20 10"
+ResourceLimit["1|5000|7|joint|low"]="20 10"
+ResourceLimit["1|5000|8|joint|low"]="20 10"
+
+ResourceLimit["3|5000|2|joint|low"]="15 10"
+ResourceLimit["3|5000|3|joint|low"]="15 10"
+ResourceLimit["3|5000|4|joint|low"]="15 10"
+ResourceLimit["3|5000|6|joint|low"]="20 10"
+ResourceLimit["3|5000|7|joint|low"]="30 12"
+ResourceLimit["3|5000|8|joint|low"]="30 12"
+
+ResourceLimit["7|5000|2|joint|low"]="30 20"
+ResourceLimit["7|5000|3|joint|low"]="30 20"
+ResourceLimit["7|5000|4|joint|low"]="30 20"
+ResourceLimit["7|5000|6|joint|low"]="45 25"
+ResourceLimit["7|5000|7|joint|low"]="45 30"
+ResourceLimit["7|5000|8|joint|low"]="50 30"
+>>>>>>> ae20d82bd6fc9474cd60407d4094256349e9fdbe
 
 ScenarioKeys=(
     "1|5000|5|joint|low"

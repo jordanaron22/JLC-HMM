@@ -1,3 +1,11 @@
 SubmissionDraft2025
 *.docx
 *.pdf
+.Rlibrary
+Data
+DataRepo
+Mort
+Routputs*
+RawData
+*.rda
+.png
