@@ -1,8 +1,10 @@
 #!/bin/bash -l
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --mail-type=NONE
+#SBATCH --mail-type=FAIL,TIME_LIMIT
+#SBATCH --mail-user=aron0064@umn.edu
 #SBATCH --array=1-10
+#SBATCH -A mfiecas
 #SBATCH -o LogFiles/%A_%a.out
 #SBATCH -e LogFiles/%A_%a.err
 fit_mix_num=$1
@@ -12,17 +14,20 @@ run_bootstrap=$4
 init_jitter_scale=$5
 run_leave_one_out_cv=$6
 use_hot_start=$7
-sim_scenario=$8
-true_mix_num=${9:-$fit_mix_num}
-save_reduced_output=${10:-false}
-class_selection_run=${11:-false}
-emission_overlap=${12:-low}
+simulation_days=$8
+num_people=$9
+true_mix_num=${10:-$fit_mix_num}
+save_reduced_output=${11:-false}
+class_selection_run=${12:-false}
+emission_overlap=${13:-low}
+time_limit_hours=${14:-NA}
+memory_limit_gb=${15:-NA}
 date
-path="$HOME/JM"
+path="/projects/standard/mfiecas/aron0064/JLC-HMM"
 cd $path/Routputs
 start_time=$(date +%s)
-module load R/4.4.0
-Rscript $path/Rcode/JMHMM.R $fit_mix_num $model_type $data_source $run_bootstrap $init_jitter_scale $run_leave_one_out_cv $use_hot_start $sim_scenario $true_mix_num $save_reduced_output $class_selection_run $emission_overlap
+module load R/4.4.0-openblas-rocky8
+Rscript $path/Rcode/JMHMM.R $fit_mix_num $model_type $data_source $run_bootstrap $init_jitter_scale $run_leave_one_out_cv $use_hot_start $simulation_days $num_people $true_mix_num $save_reduced_output $class_selection_run $emission_overlap $time_limit_hours $memory_limit_gb
 finish_time=$(date +%s)
 elapsed_time=$((finish_time  - start_time))
 
