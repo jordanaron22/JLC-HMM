@@ -11,7 +11,9 @@ CLI_ARG <- list(
   true_mix_num = 10,
   save_reduced_output = 11,
   class_selection_run = 12,
-  emission_overlap = 13
+  emission_overlap = 13,
+  time_limit_hours = 14,
+  memory_limit_gb = 15
 )
 
 MODEL_TYPE_CODES <- c(two_stage = 0, joint = 2)

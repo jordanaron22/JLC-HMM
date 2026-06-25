@@ -98,7 +98,7 @@ plot_data <- do.call(rbind,plot_rows)
 
 
 ggplot(
-  plot_data |> dplyr::filter(model_type == "joint"),
+  plot_data |> dplyr::filter(model_type == "joint", emission_overlap == "low"),
   aes(x = selected_fit_mix_num, y = n,
                fill = factor(model_type))
 ) +

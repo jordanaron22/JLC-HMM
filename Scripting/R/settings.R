@@ -25,7 +25,9 @@ default_settings <- list(
   emission_overlap = "low",
   simulation_days = DEFAULT_SIMULATION_DAYS,
   num_people = DEFAULT_SIMULATION_PEOPLE,
-  missing_perc = DEFAULT_MISSING_PERC
+  missing_perc = DEFAULT_MISSING_PERC,
+  time_limit_hours = NA_real_,
+  memory_limit_gb = NA_real_
 )
 
 get_numeric_arg <- function(cli_args, arg_index){
@@ -100,7 +102,9 @@ build_settings <- function(cli_args = commandArgs(TRUE),
     true_mix_num = get_numeric_arg(cli_args,CLI_ARG$true_mix_num),
     save_reduced_output = get_arg(cli_args,CLI_ARG$save_reduced_output),
     class_selection_run = get_arg(cli_args,CLI_ARG$class_selection_run),
-    emission_overlap = get_arg(cli_args,CLI_ARG$emission_overlap)
+    emission_overlap = get_arg(cli_args,CLI_ARG$emission_overlap),
+    time_limit_hours = get_numeric_arg(cli_args,CLI_ARG$time_limit_hours),
+    memory_limit_gb = get_numeric_arg(cli_args,CLI_ARG$memory_limit_gb)
   )
 
   for (setting_name in names(command_settings)){

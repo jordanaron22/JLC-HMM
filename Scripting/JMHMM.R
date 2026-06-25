@@ -1,5 +1,26 @@
 ################## Intro ################## 
 
+jmhmm_start_time <- Sys.time()
+
+read_memory_peak_gb <- function(){
+  status_file <- "/proc/self/status"
+  if (!file.exists(status_file)){
+    return(NA_real_)
+  }
+
+  status_lines <- readLines(status_file,warn = FALSE)
+  memory_line <- grep("^VmHWM:",status_lines,value = TRUE)
+  if (length(memory_line) == 0){
+    return(NA_real_)
+  }
+
+  memory_kb <- suppressWarnings(as.numeric(
+    sub("^VmHWM:[[:space:]]*([0-9]+)[[:space:]]*kB.*$","\\1",
+        memory_line[[1]])
+  ))
+  memory_kb / 1024^2
+}
+
 library(Rcpp)
 library(RcppArmadillo)
 library(matrixStats)
@@ -1312,6 +1333,10 @@ bic <- CalcBIC(new_likelihood,bic_sample_size,
 aic <- CalcAIC(new_likelihood,bic_parameter_count[["total"]])
 diagnostics$aic_parameter_count <- bic_parameter_count[["total"]]
 diagnostics$aic_likelihood <- diagnostics$bic_likelihood
+diagnostics$runtime_seconds <- as.numeric(difftime(Sys.time(),
+                                                   jmhmm_start_time,
+                                                   units = "secs"))
+diagnostics$memory_peak_gb <- read_memory_peak_gb()
 to_save <- make_saved_results(true_params = true_params,
                               est_params = est_params,
                               bic = bic,

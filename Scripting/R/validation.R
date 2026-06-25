@@ -65,6 +65,8 @@ validate_settings <- function(settings, model_type_codes, data_source_values,
   settings$simulation_days <- as.numeric(settings$simulation_days)
   settings$num_people <- as.numeric(settings$num_people)
   settings$missing_perc <- as.numeric(settings$missing_perc)
+  settings$time_limit_hours <- as.numeric(settings$time_limit_hours)
+  settings$memory_limit_gb <- as.numeric(settings$memory_limit_gb)
 
   validate_count_setting(settings$periods_per_day,"periods_per_day")
   validate_count_setting(settings$num_day_type_levels,"num_day_type_levels")
@@ -77,6 +79,14 @@ validate_settings <- function(settings, model_type_codes, data_source_values,
       settings$missing_perc < 0 || settings$missing_perc > 1){
     stop(paste("missing_perc must be between 0 and 1; got:",
                settings$missing_perc))
+  }
+  if (!is.na(settings$time_limit_hours) && settings$time_limit_hours <= 0){
+    stop(paste("time_limit_hours must be positive or NA; got:",
+               settings$time_limit_hours))
+  }
+  if (!is.na(settings$memory_limit_gb) && settings$memory_limit_gb <= 0){
+    stop(paste("memory_limit_gb must be positive or NA; got:",
+               settings$memory_limit_gb))
   }
   settings$emission_overlap <- as.character(settings$emission_overlap)
   if (!settings$emission_overlap %in% names(emission_overlap_factor)){
