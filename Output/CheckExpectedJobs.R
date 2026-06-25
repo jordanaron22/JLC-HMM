@@ -5,7 +5,7 @@ args <- commandArgs(trailingOnly = TRUE)
 manifest_file <- if (length(args) >= 1){
   args[[1]]
 } else {
-  file.path("Output","expected_jobs.tsv")
+  file.path("Output","Routputs","expected_jobs.tsv")
 }
 
 parsed_results_file <- if (length(args) >= 2){
