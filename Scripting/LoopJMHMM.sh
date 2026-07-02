@@ -2,68 +2,68 @@
 
 declare -A ResourceLimit
 
-array_start=11
-array_end=110
+array_start=111
+array_end=200
 
 # key: simulation_days|num_people|fit_mix_num|model_type|emission_overlap
 # value: recommended_time_hours memory_limit_gb
-ResourceLimit["1|5000|5|joint|low"]="6 8"
-ResourceLimit["3|5000|5|joint|low"]="7 9"
-ResourceLimit["7|5000|5|joint|low"]="8 12"
+ResourceLimit["1|5000|5|joint|low"]="9 6"
+ResourceLimit["3|5000|5|joint|low"]="9 9"
+ResourceLimit["7|5000|5|joint|low"]="9 11"
 
-ResourceLimit["1|5000|5|joint|high"]="20 8"
-ResourceLimit["3|5000|5|joint|high"]="20 10"
-ResourceLimit["7|5000|5|joint|high"]="40 12"
+ResourceLimit["1|5000|5|joint|high"]="17 6"
+ResourceLimit["3|5000|5|joint|high"]="27 8"
+ResourceLimit["7|5000|5|joint|high"]="52 11"
 
-ResourceLimit["1|5000|5|two_stage|low"]="9 8"
-ResourceLimit["3|5000|5|two_stage|low"]="9 9"
-ResourceLimit["7|5000|5|two_stage|low"]="9 12"
+ResourceLimit["1|5000|5|two_stage|low"]="10 6"
+ResourceLimit["3|5000|5|two_stage|low"]="10 6"
+ResourceLimit["7|5000|5|two_stage|low"]="10 8"
 
-ResourceLimit["1|5000|5|two_stage|high"]="10 8"
-ResourceLimit["3|5000|5|two_stage|high"]="30 9"
-ResourceLimit["7|5000|5|two_stage|high"]="40 12"
+ResourceLimit["1|5000|5|two_stage|high"]="14 7"
+ResourceLimit["3|5000|5|two_stage|high"]="37 8"
+ResourceLimit["7|5000|5|two_stage|high"]="58 10"
 
 
-ResourceLimit["1|5000|2|joint|low"]="1 7"
-ResourceLimit["3|5000|2|joint|low"]="1 7"
-ResourceLimit["7|5000|2|joint|low"]="3 7"
+ResourceLimit["1|5000|2|joint|low"]="3 6"
+ResourceLimit["3|5000|2|joint|low"]="3 6"
+ResourceLimit["7|5000|2|joint|low"]="5 7"
 
-ResourceLimit["1|5000|3|joint|low"]="1 7"
-ResourceLimit["3|5000|3|joint|low"]="2 8"
-ResourceLimit["7|5000|3|joint|low"]="6 9"
+ResourceLimit["1|5000|3|joint|low"]="5 6"
+ResourceLimit["3|5000|3|joint|low"]="5 6"
+ResourceLimit["7|5000|3|joint|low"]="9 9"
 
-ResourceLimit["1|5000|4|joint|low"]="2 8"
-ResourceLimit["3|5000|4|joint|low"]="3 9"
-ResourceLimit["7|5000|4|joint|low"]="6 10"
+ResourceLimit["1|5000|4|joint|low"]="3 6"
+ResourceLimit["3|5000|4|joint|low"]="4 6"
+ResourceLimit["7|5000|4|joint|low"]="7 8"
 
-ResourceLimit["1|5000|6|joint|low"]="10 8"
-ResourceLimit["3|5000|6|joint|low"]="22 10"
-ResourceLimit["7|5000|6|joint|low"]="40 12"
+ResourceLimit["1|5000|6|joint|low"]="11 7"
+ResourceLimit["3|5000|6|joint|low"]="25 10"
+ResourceLimit["7|5000|6|joint|low"]="54 11"
 
-ResourceLimit["1|5000|7|joint|low"]="13 10"
-ResourceLimit["3|5000|7|joint|low"]="40 10"
-ResourceLimit["7|5000|7|joint|low"]="50 32"
+ResourceLimit["1|5000|7|joint|low"]="16 8"
+ResourceLimit["3|5000|7|joint|low"]="33 7"
+ResourceLimit["7|5000|7|joint|low"]="71 13"
 
-ResourceLimit["1|5000|8|joint|low"]="25 10"
-ResourceLimit["3|5000|8|joint|low"]="40 12"
-ResourceLimit["7|5000|8|joint|low"]="60 15"
+ResourceLimit["1|5000|8|joint|low"]="26 6"
+ResourceLimit["3|5000|8|joint|low"]="44 9"
+ResourceLimit["7|5000|8|joint|low"]="80 13"
 
 ScenarioKeys=(
     "1|5000|5|joint|low"
     "3|5000|5|joint|low"
     "7|5000|5|joint|low"
 
-    "1|5000|5|joint|high"
-    "3|5000|5|joint|high"
-    "7|5000|5|joint|high"
+    # "1|5000|5|joint|high"
+    # "3|5000|5|joint|high"
+    # "7|5000|5|joint|high"
 
     "1|5000|5|two_stage|low"
     "3|5000|5|two_stage|low"
     "7|5000|5|two_stage|low"
 
-    "1|5000|5|two_stage|high"
-    "3|5000|5|two_stage|high"
-    "7|5000|5|two_stage|high"
+    # "1|5000|5|two_stage|high"
+    # "3|5000|5|two_stage|high"
+    # "7|5000|5|two_stage|high"
 
     "1|5000|2|joint|low"
     "1|5000|3|joint|low"
@@ -85,6 +85,7 @@ ScenarioKeys=(
     "7|5000|6|joint|low"
     "7|5000|7|joint|low"
     "7|5000|8|joint|low"
+
 )
 
 manifest_file="expected_jobs.tsv"

@@ -5,7 +5,7 @@ args <- commandArgs(trailingOnly = TRUE)
 input_dir <- if (length(args) >= 1){
   args[[1]]
 } else {
-  file.path("Output","Routputs","pilot")
+  file.path("Output","Routputs","Routputs")
 }
 
 output_file <- if (length(args) >= 2){
@@ -293,6 +293,14 @@ if (nrow(results) > 0 && all(scenario_cols %in% names(results))){
     scenario_cols
   )
 
+  scenario_counts <- add_numeric_summaries(
+    scenario_counts,
+    results,
+    "diagnostic_runtime_seconds",
+    "runtime_seconds",
+    scenario_cols
+  )
+
   memory_cols <- c(
     diagnostic_memory_peak_gb = "memory_peak_gb",
     max_rss_gb = "max_rss_gb",
@@ -341,17 +349,42 @@ if (nrow(results) > 0 && all(scenario_cols %in% names(results))){
   scenario_counts <- data.frame()
 }
 
-complete_scenario <- scenario_counts$n_seeds == 100
+complete_scenario <- scenario_counts$n_seeds == 100 | scenario_counts$n_seeds == 99 | scenario_counts$n_seeds == 98
+runtime_summary_cols <- c("max_runtime_seconds","q95_runtime_seconds")
+missing_runtime_summary_cols <- setdiff(runtime_summary_cols,
+                                        names(scenario_counts))
+if (length(missing_runtime_summary_cols) > 0){
+  stop("Cannot compute recommended_time_hours from full runtime; missing ",
+       "runtime summary columns: ",
+       paste(missing_runtime_summary_cols,collapse = ", "),
+       ". Check that parsed results include diagnostic_runtime_seconds.")
+}
+
+missing_runtime_summary <- !is.finite(scenario_counts$max_runtime_seconds) |
+  !is.finite(scenario_counts$q95_runtime_seconds)
+if (any(missing_runtime_summary)){
+  missing_scenarios <- do.call(
+    paste,
+    c(scenario_counts[missing_runtime_summary,scenario_cols,drop = FALSE],
+      sep = "|")
+  )
+  stop("Cannot compute recommended_time_hours from full runtime; missing ",
+       "finite diagnostic_runtime_seconds summaries for scenarios: ",
+       paste(missing_scenarios,collapse = "; "))
+}
+
+max_time_seconds <- scenario_counts$max_runtime_seconds
+q95_time_seconds <- scenario_counts$q95_runtime_seconds
 scenario_counts$recommended_time_hours <- ifelse(
   complete_scenario,
   ceiling(pmax(
-    scenario_counts$max_em_seconds / 3600 * 1.10,
-    scenario_counts$q95_em_seconds / 3600 * 1.10,
+    max_time_seconds / 3600 * 1.10,
+    q95_time_seconds / 3600 * 1.15,
     1
   )),
   ceiling(pmax(
-    scenario_counts$max_em_seconds / 3600 * 1.25,
-    scenario_counts$q95_em_seconds / 3600 * 1.50,
+    max_time_seconds / 3600 * 1.25,
+    q95_time_seconds / 3600 * 1.50,
     1
   ))
 )
@@ -384,5 +417,6 @@ scenario_counts_file <- if (grepl("[.]rds$",output_file,ignore.case = TRUE)){
 # saveRDS(scenario_counts,scenario_counts_file)
 # message("Saved scenario counts to: ",scenario_counts_file)
 
-scenario_counts |> dplyr::select(fit_mix_num,model_type,simulation_days,emission_overlap,n_seeds,max_time_limit_hours,recommended_time_hours,recommended_mem_gb,) |>
+adjust_submissions <- scenario_counts |> dplyr::select(fit_mix_num,model_type,simulation_days,emission_overlap,n_seeds,max_time_limit_hours,recommended_time_hours,recommended_mem_gb,) |>
   dplyr::arrange(fit_mix_num,model_type,simulation_days,emission_overlap) 
+adjust_submissions
