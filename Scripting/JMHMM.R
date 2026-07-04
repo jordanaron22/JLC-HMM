@@ -50,7 +50,7 @@ source_jmhmm_module <- function(module_file){
 for (module_file in c("constants.R","saved_results.R","validation.R",
                       "settings.R","params.R","transitions.R",
                       "emissions_tobit.R","forward_backward.R",
-                      "data_simulation.R","helpers.R","data_nhanes.R",
+                      "oakes_info.R","data_simulation.R","helpers.R","data_nhanes.R",
                       "survival.R","diagnostics.R")){
   source_jmhmm_module(module_file)
 }

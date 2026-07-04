@@ -13,7 +13,7 @@ default_settings <- list(
   periods_per_day = DEFAULT_PERIODS_PER_DAY,
   num_day_type_levels = WEEKDAY_LEVELS,
   # Command-line defaults used when not running through bash/slurm.
-  fit_mix_num = 2,
+  fit_mix_num = 5,
   true_mix_num = 5, # set to  NA_real_ to match fit_mix_num by default
   model_type = "joint", # "joint", "two_stage"
   data_source = "simulation", #"nhanes" or "simulation"
