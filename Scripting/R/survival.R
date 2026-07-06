@@ -49,6 +49,12 @@ SurvLike <- function(beta_vec,surv_covar_risk_vec,surv_coef,survival_context){
                    ((re_prob %*% beta_vec)+surv_covar_risk_vec) * surv_event -
                    cbline_vec*exp((re_prob %*% beta_vec)+surv_covar_risk_vec))
 
+  #UNDERSTAND THIS CHANGE BETTER
+  # loglike <- sum(log(bline_vec^surv_event) +
+  #                  ((re_prob %*% beta_vec)+surv_covar_risk_vec) * surv_event -
+  #                  cbline_vec*(re_prob %*%exp(beta_vec)+surv_covar_risk_vec))
+
+
   return(-loglike)
 }
 
