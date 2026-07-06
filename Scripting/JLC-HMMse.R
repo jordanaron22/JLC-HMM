@@ -108,11 +108,16 @@ H1 <- bdiag(init_h1$hessian,tran_h1$hessian,emit_h1$hessian,
            mix_h1$hessian,surv_h1$hessian)
 # solve(-H1)
 
-tic()
-h2_1e5 <- CalcOakesH2(theta_pack = theta_pack,
-                  data_context = oakes_data_context,
-                  eps = 1e-5)
-toc()
+
+oakes_data_context_h2 <- oakes_data_context
+oakes_data_context_h2$bline_vec <- NULL
+oakes_data_context_h2$cbline_vec <- NULL
+
+h2_1e5 <- CalcOakesH2(
+  theta_pack = theta_pack,
+  data_context = oakes_data_context_h2,
+  eps = 1e-5
+)
 
 H2 <- h2_1e5$hessian
 
@@ -141,49 +146,49 @@ se = sqrt(diag(vcov))
 # DiagnoseOakesInformation(H1, H2)
 
 
-h2_1e4_new <- CalcOakesH2(
-  theta_pack = theta_pack,
-  data_context = oakes_data_context,
-  eps = 1e-4
-)
+# h2_1e4_new <- CalcOakesH2(
+#   theta_pack = theta_pack,
+#   data_context = oakes_data_context,
+#   eps = 1e-4
+# )
 
-H2_1e4 <- h2_1e4_new$hessian
-DiagnoseOakesInformation(H1, H2_1e4)
+# H2_1e4 <- h2_1e4_new$hessian
+# DiagnoseOakesInformation(H1, H2_1e4)
 
-eig <- eigen(I_obs_sym, symmetric = TRUE)
+# eig <- eigen(I_obs_sym, symmetric = TRUE)
 
-tol <- 1e-8 * max(eig$values)
-vals_fixed <- pmax(eig$values, tol)
+# tol <- 1e-8 * max(eig$values)
+# vals_fixed <- pmax(eig$values, tol)
 
-I_obs_pd <- eig$vectors %*% diag(vals_fixed) %*% t(eig$vectors)
-I_obs_pd <- 0.5 * (I_obs_pd + t(I_obs_pd))
+# I_obs_pd <- eig$vectors %*% diag(vals_fixed) %*% t(eig$vectors)
+# I_obs_pd <- 0.5 * (I_obs_pd + t(I_obs_pd))
 
-vcov_pd <- solve(I_obs_pd)
-se_pd <- sqrt(diag(vcov_pd))
-
-
-
-pm <- theta_pack$parameter_map
-
-surv_class_idx <- which(
-  pm$block == "survival" &
-    grepl("^class_", pm$param_name)
-)
-
-pm[surv_class_idx, c("index", "block", "param_name")]
-se_pd[surv_class_idx]
+# vcov_pd <- solve(I_obs_pd)
+# se_pd <- sqrt(diag(vcov_pd))
 
 
-I_h1_only <- -as.matrix(H1)
-vcov_h1_only <- solve(I_h1_only)
-se_h1_only <- sqrt(diag(vcov_h1_only))
 
-compare_surv_class_se <- data.frame(
-  index = surv_class_idx,
-  parameter = pm$param_name[surv_class_idx],
-  se_h1_only = se_h1_only[surv_class_idx],
-  se_oakes_pd = se_pd[surv_class_idx],
-  ratio_oakes_to_h1 = se_pd[surv_class_idx] / se_h1_only[surv_class_idx]
-)
+# pm <- theta_pack$parameter_map
 
-compare_surv_class_se
+# surv_class_idx <- which(
+#   pm$block == "survival" &
+#     grepl("^class_", pm$param_name)
+# )
+
+# pm[surv_class_idx, c("index", "block", "param_name")]
+# se_pd[surv_class_idx]
+
+
+# I_h1_only <- -as.matrix(H1)
+# vcov_h1_only <- solve(I_h1_only)
+# se_h1_only <- sqrt(diag(vcov_h1_only))
+
+# compare_surv_class_se <- data.frame(
+#   index = surv_class_idx,
+#   parameter = pm$param_name[surv_class_idx],
+#   se_h1_only = se_h1_only[surv_class_idx],
+#   se_oakes_pd = se_pd[surv_class_idx],
+#   ratio_oakes_to_h1 = se_pd[surv_class_idx] / se_h1_only[surv_class_idx]
+# )
+
+# compare_surv_class_se
