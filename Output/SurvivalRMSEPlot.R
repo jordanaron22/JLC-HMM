@@ -1,3 +1,4 @@
+library(ggplot2)
 input_file <- file.path("Output","parse_sim_results.rds")
 
 

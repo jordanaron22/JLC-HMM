@@ -99,7 +99,7 @@ plot_data <- do.call(rbind,plot_rows)
 
 ggplot(
   plot_data |> dplyr::filter(model_type == "joint", emission_overlap == "low"),
-  aes(x = selected_fit_mix_num, y = n,
+  aes(x = selected_fit_mix_num, y = percent,
                fill = factor(model_type))
 ) +
   geom_col(
@@ -108,7 +108,7 @@ ggplot(
   facet_grid(rows = vars(criterion),
                       cols = vars(days, emission_overlap)) +
   labs(x = "Selected latent classes",
-                y = "Selections (n)",
+                y = "Selections (%)",
                 fill = "Model")
 
 ggsave("class_selection_percentages.png",  path = "Output/Plots",width = 10, height = 6, dpi = 300)
