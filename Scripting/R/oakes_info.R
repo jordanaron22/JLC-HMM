@@ -316,7 +316,11 @@ BuildOakesPosteriorContext <- function(alpha,beta,pi_l,log_sweights_vec,
                                        survival_context = NULL,
                                        re_prob = CalcProbRE(alpha,pi_l),
                                        bline_vec = NULL,
-                                       cbline_vec = NULL){
+                                       cbline_vec = NULL,
+                                       survival_baseline_mode = "fixed",
+                                       surv_covar_risk_vec = NULL,
+                                       profile_iterations = NA_integer_,
+                                       profile_error = NA_real_){
   if (is.null(lintegral_mat)){
     lintegral_mat <- CalcLintegralMat(emit_act,emit_light,corr_mat,
                                       lod_act,lod_light)
@@ -369,6 +373,10 @@ BuildOakesPosteriorContext <- function(alpha,beta,pi_l,log_sweights_vec,
        survival_context = survival_context,
        bline_vec = bline_vec,
        cbline_vec = cbline_vec,
+       survival_baseline_mode = survival_baseline_mode,
+       surv_covar_risk_vec = surv_covar_risk_vec,
+       profile_iterations = profile_iterations,
+       profile_error = profile_error,
        act = act,
        light = light,
        vcovar_mat = vcovar_mat,
@@ -385,8 +393,248 @@ BuildOakesPosteriorContext <- function(alpha,beta,pi_l,log_sweights_vec,
        corr_mat = corr_mat)
 }
 
+NormalizeLogRows <- function(log_mat){
+  prob_mat <- matrix(NA_real_,nrow = nrow(log_mat),ncol = ncol(log_mat))
+
+  for (i in seq_len(nrow(log_mat))){
+    row_denom <- logSumExp(log_mat[i,])
+    prob_mat[i,] <- exp(log_mat[i,] - row_denom)
+  }
+
+  prob_mat
+}
+
+CalcLongitudinalClassLogLik <- function(alpha_long,pi_l){
+  len <- dim(alpha_long[[1]])[1]
+  mix_num <- ncol(pi_l)
+  log_like_mat <- matrix(NA_real_,nrow = length(alpha_long),ncol = mix_num)
+
+  for (ind in seq_along(alpha_long)){
+    for (re_ind in seq_len(mix_num)){
+      log_like_mat[ind,re_ind] <-
+        logSumExp(alpha_long[[ind]][len,,re_ind]) + log(pi_l[ind,re_ind])
+    }
+  }
+
+  log_like_mat
+}
+
+CalcSurvivalClassLogLik <- function(beta_vec,surv_covar_risk_vec,
+                                    surv_event,bline_vec,cbline_vec){
+  n <- length(surv_event)
+  mix_num <- length(beta_vec)
+  eta_mat <- matrix(surv_covar_risk_vec,nrow = n,ncol = mix_num) +
+    matrix(beta_vec,nrow = n,ncol = mix_num,byrow = TRUE)
+
+  log_bline_event <- numeric(n)
+  event_rows <- surv_event == 1
+  log_bline_event[event_rows] <- log(bline_vec[event_rows])
+
+  matrix(log_bline_event,nrow = n,ncol = mix_num) +
+    matrix(surv_event,nrow = n,ncol = mix_num) * eta_mat -
+    matrix(cbline_vec,nrow = n,ncol = mix_num) * exp(eta_mat)
+}
+
+AddClassLogOffsetsToAlpha <- function(alpha,log_offset_mat){
+  alpha_offset <- alpha
+
+  for (ind in seq_along(alpha_offset)){
+    for (re_ind in seq_len(dim(alpha_offset[[ind]])[3])){
+      alpha_offset[[ind]][,,re_ind] <-
+        alpha_offset[[ind]][,,re_ind] + log_offset_mat[ind,re_ind]
+    }
+  }
+
+  alpha_offset
+}
+
+RebuildProfiledPosteriorContext <- function(theta,theta_pack,data_context,
+                                            make_inactive_day_types_safe =
+                                              TRUE,
+                                            maxit = 100L,
+                                            tol = 1e-9,
+                                            damping = 1.0){
+  maxit <- as.integer(maxit)
+  if (length(maxit) != 1 || is.na(maxit) || maxit < 1L){
+    stop("maxit must be a positive integer")
+  }
+  if (length(tol) != 1 || is.na(tol) || tol < 0){
+    stop("tol must be a non-negative scalar")
+  }
+  if (length(damping) != 1 || is.na(damping) ||
+      damping < 0 || damping > 1){
+    stop("damping must be in [0, 1]")
+  }
+
+  params <- UnpackOakesTheta(theta,theta_pack)
+  fb_params <- params
+  if (make_inactive_day_types_safe){
+    fb_params <- MakeInactiveDayTypesSafe(fb_params,data_context$vcovar_mat)
+  }
+
+  survival_context <- data_context$survival_context
+  pi_l <- CalcPi(params$nu_mat,data_context$nu_covar_mat)
+  surv_covar_risk_vec <- SurvCovarRiskVec(survival_context$surv_covar,
+                                          params$surv_coef)
+
+  lintegral_mat <- CalcLintegralMat(fb_params$emit_act,fb_params$emit_light,
+                                    fb_params$corr_mat,
+                                    data_context$lod_act,
+                                    data_context$lod_light)
+  tran_list <- GenTranList(fb_params$params_tran_array,
+                           seq_len(nrow(data_context$act)),
+                           ncol(pi_l),
+                           dim(fb_params$params_tran_array)[3],
+                           period_len = data_context$period_len)
+
+  alpha_long <- Forward(act = data_context$act,
+                        light = data_context$light,
+                        init = params$init,
+                        tran_list = tran_list,
+                        emit_act = fb_params$emit_act,
+                        emit_light = fb_params$emit_light,
+                        lod_act = data_context$lod_act,
+                        lod_light = data_context$lod_light,
+                        corr_mat = fb_params$corr_mat,
+                        beta_vec = params$beta_vec,
+                        surv_coef = params$surv_coef,
+                        surv_covar_risk_vec = surv_covar_risk_vec,
+                        event_vec = survival_context$surv_event,
+                        bline_vec = rep(1,length(survival_context$surv_event)),
+                        cbline_vec = rep(0,length(survival_context$surv_event)),
+                        lintegral_mat = lintegral_mat,
+                        log_sweights_vec = data_context$log_sweights_vec,
+                        surv_covar = survival_context$surv_covar,
+                        vcovar_mat = data_context$vcovar_mat,
+                        lambda_act_mat = data_context$lambda_act_mat,
+                        lambda_light_mat = data_context$lambda_light_mat,
+                        tobit = data_context$tobit,
+                        incl_surv = MODEL_TYPE_CODES[["two_stage"]],
+                        beta_bool = 0,
+                        mix_num = ncol(pi_l))
+
+  log_long_mat <- CalcLongitudinalClassLogLik(alpha_long,pi_l)
+
+  beta <- Backward(act = data_context$act,
+                   light = data_context$light,
+                   tran_list = tran_list,
+                   emit_act = fb_params$emit_act,
+                   emit_light = fb_params$emit_light,
+                   lod_act = data_context$lod_act,
+                   lod_light = data_context$lod_light,
+                   corr_mat = fb_params$corr_mat,
+                   lintegral_mat = lintegral_mat,
+                   vcovar_mat = data_context$vcovar_mat,
+                   lambda_act_mat = data_context$lambda_act_mat,
+                   lambda_light_mat = data_context$lambda_light_mat,
+                   tobit = data_context$tobit,
+                   mix_num = ncol(pi_l),
+                   day_length = nrow(data_context$act))
+
+  re_prob_cur <- data_context$re_prob
+  if (is.null(re_prob_cur) || is.null(dim(re_prob_cur)) ||
+      any(dim(re_prob_cur) != dim(pi_l)) ||
+      any(!is.finite(re_prob_cur))){
+    re_prob_cur <- pi_l
+  }
+
+  profile_error <- NA_real_
+  alpha <- NULL
+  bline_vec <- NULL
+  cbline_vec <- NULL
+  log_surv_mat <- NULL
+
+  for (iter in seq_len(maxit)){
+    print(iter)
+    bhaz_vec <- CalcBLHaz(params$surv_coef,params$beta_vec,
+                          re_prob_cur,surv_covar_risk_vec,
+                          survival_context$surv_event,
+                          survival_context$surv_time,
+                          survival_context$surv_covar)
+    bline_vec <- bhaz_vec[[1]]
+    cbline_vec <- bhaz_vec[[2]]
+
+    log_surv_mat <- CalcSurvivalClassLogLik(
+      beta_vec = params$beta_vec,
+      surv_covar_risk_vec = surv_covar_risk_vec,
+      surv_event = survival_context$surv_event,
+      bline_vec = bline_vec,
+      cbline_vec = cbline_vec)
+    re_prob_new <- NormalizeLogRows(log_long_mat + log_surv_mat)
+    profile_error <- max(abs(re_prob_new - re_prob_cur),na.rm = TRUE)
+
+    if (profile_error < tol || iter == maxit){
+      alpha <- AddClassLogOffsetsToAlpha(alpha_long,log_surv_mat)
+
+      return(BuildOakesPosteriorContext(
+        alpha = alpha,
+        beta = beta,
+        pi_l = pi_l,
+        log_sweights_vec = data_context$log_sweights_vec,
+        act = data_context$act,
+        light = data_context$light,
+        vcovar_mat = data_context$vcovar_mat,
+        params_tran_array = fb_params$params_tran_array,
+        emit_act = fb_params$emit_act,
+        emit_light = fb_params$emit_light,
+        corr_mat = fb_params$corr_mat,
+        lod_act = data_context$lod_act,
+        lod_light = data_context$lod_light,
+        lambda_act_mat = data_context$lambda_act_mat,
+        lambda_light_mat = data_context$lambda_light_mat,
+        tobit = data_context$tobit,
+        period_len = data_context$period_len,
+        lintegral_mat = lintegral_mat,
+        nu_covar_mat = data_context$nu_covar_mat,
+        survival_context = survival_context,
+        re_prob = re_prob_new,
+        bline_vec = bline_vec,
+        cbline_vec = cbline_vec,
+        survival_baseline_mode = "profiled",
+        surv_covar_risk_vec = surv_covar_risk_vec,
+        profile_iterations = iter,
+        profile_error = profile_error))
+    }
+
+    re_prob_cur <- damping * re_prob_new + (1 - damping) * re_prob_cur
+  }
+}
+
 RebuildOakesPosteriorContext <- function(theta,theta_pack,data_context,
                                          make_inactive_day_types_safe = TRUE){
+  survival_baseline_mode <- data_context$survival_baseline_mode
+  if (is.null(survival_baseline_mode)){
+    survival_baseline_mode <- "fixed"
+  }
+
+  if (identical(survival_baseline_mode,"profiled")){
+    profile_maxit <- data_context$profile_maxit
+    if (is.null(profile_maxit)){
+      profile_maxit <- 100L
+    }
+    profile_tol <- data_context$profile_tol
+    if (is.null(profile_tol)){
+      profile_tol <- 1e-9
+    }
+    profile_damping <- data_context$profile_damping
+    if (is.null(profile_damping)){
+      profile_damping <- 1.0
+    }
+    return(RebuildProfiledPosteriorContext(
+      theta = theta,
+      theta_pack = theta_pack,
+      data_context = data_context,
+      make_inactive_day_types_safe = make_inactive_day_types_safe,
+      maxit = profile_maxit,
+      tol = profile_tol,
+      damping = profile_damping))
+  }
+
+  if (!identical(survival_baseline_mode,"fixed")){
+    stop(paste("Unknown survival_baseline_mode:",
+               survival_baseline_mode))
+  }
+
   params <- UnpackOakesTheta(theta,theta_pack)
   fb_params <- params
   if (make_inactive_day_types_safe){
@@ -411,17 +659,7 @@ RebuildOakesPosteriorContext <- function(theta,theta_pack,data_context,
   bline_vec <- data_context$bline_vec
   cbline_vec <- data_context$cbline_vec
   if (is.null(bline_vec) || is.null(cbline_vec)){
-    re_prob_for_bhaz <- data_context$re_prob
-    if (is.null(re_prob_for_bhaz)){
-      re_prob_for_bhaz <- pi_l
-    }
-    bhaz_vec <- CalcBLHaz(params$surv_coef,params$beta_vec,
-                          re_prob_for_bhaz,surv_covar_risk_vec,
-                          survival_context$surv_event,
-                          survival_context$surv_time,
-                          survival_context$surv_covar)
-    bline_vec <- bhaz_vec[[1]]
-    cbline_vec <- bhaz_vec[[2]]
+    stop("survival_baseline_mode = 'fixed' requires bline_vec and cbline_vec")
   }
 
   alpha <- Forward(act = data_context$act,
@@ -501,7 +739,12 @@ RebuildOakesPosteriorContext <- function(theta,theta_pack,data_context,
                              survival_context = survival_context,
                              re_prob = re_prob,
                              bline_vec = bline_vec,
-                             cbline_vec = cbline_vec)
+                             cbline_vec = cbline_vec,
+                             survival_baseline_mode =
+                               survival_baseline_mode,
+                             surv_covar_risk_vec = surv_covar_risk_vec,
+                             profile_iterations = NA_integer_,
+                             profile_error = NA_real_)
 }
 
 DiagnosePosteriorContext <- function(posterior_context){
@@ -911,6 +1154,48 @@ BuildOakesSurvivalDesign <- function(surv_covar,surv_coef){
 
   design
 }
+
+
+CalcOakesProfiledSurvivalH1 <- function(beta_vec,
+                                        surv_coef,
+                                        survival_context,
+                                        fit_mix_num = length(beta_vec),
+                                        surv_covar_risk_vec = NULL) {
+  re_prob <- survival_context$re_prob
+  if (is.null(re_prob)) {
+    stop("CalcOakesProfiledSurvivalH1 requires survival_context$re_prob")
+  }
+  if (is.null(dim(re_prob))) {
+    re_prob <- matrix(re_prob, ncol = fit_mix_num)
+    survival_context$re_prob <- re_prob
+  }
+  if (ncol(re_prob) != fit_mix_num) {
+    stop("survival_context$re_prob must have fit_mix_num columns")
+  }
+
+  beta_surv_coef <- IntoBetaSurvCoef(beta_vec = beta_vec,
+                                    surv_coef = surv_coef,
+                                    fit_mix_num = fit_mix_num)
+
+  surv_coef_len <- unlist(lapply(surv_coef, length))
+
+  out <- CalcSurvivalScoreInfo(beta_surv_coef = beta_surv_coef,
+                              survival_context = survival_context,
+                              surv_coef_len = surv_coef_len,
+                              fit_mix_num = fit_mix_num,
+                              surv_covar_risk_vec = surv_covar_risk_vec)
+
+  list(score = out$score,
+      info = out$info,
+      hessian = -out$info,
+      beta_vec = out$beta_vec,
+      surv_coef = out$surv_coef,
+      surv_covar_risk_vec = out$surv_covar_risk_vec,
+      parameter_order = "age, class 2:G survival effects, non-reference survival covariate effects")
+}
+
+
+
 
 CalcOakesFixedBaselineSurvivalScoreInfo <- function(beta_vec,surv_coef,
                                                     survival_context,
@@ -1539,6 +1824,11 @@ CalcOakesScore <- function(theta,theta_pack,posterior_context,
 
   surv_idx <- which(parameter_map$block == "survival")
   if (length(surv_idx) > 0){
+    survival_baseline_mode <- GetOakesContextValue(
+      posterior_context,"survival_baseline_mode",
+      default = "fixed",
+      required = FALSE)
+
     survival_context <- GetOakesContextValue(posterior_context,
                                              "survival_context")
     re_prob <- GetOakesContextValue(posterior_context,"re_prob",
@@ -1552,13 +1842,33 @@ CalcOakesScore <- function(theta,theta_pack,posterior_context,
       }
     }
 
-    surv_score <- CalcOakesSurvivalH1(
-      beta_vec = params$beta_vec,
-      surv_coef = params$surv_coef,
-      survival_context = survival_context,
-      fit_mix_num = theta_pack$fit_mix_num,
-      cbline_vec = GetOakesContextValue(posterior_context,"cbline_vec",
-                                        required = FALSE))
+    if (identical(survival_baseline_mode, "fixed")){
+      surv_score <- CalcOakesSurvivalH1(
+        beta_vec = params$beta_vec,
+        surv_coef = params$surv_coef,
+        survival_context = survival_context,
+        fit_mix_num = theta_pack$fit_mix_num,
+        cbline_vec = GetOakesContextValue(posterior_context,"cbline_vec",
+                                          required = FALSE)
+      )
+    } else if (identical(survival_baseline_mode, "profiled")){
+      surv_covar_risk_vec_for_score <- SurvCovarRiskVec(
+        survival_context$surv_covar,
+        params$surv_coef
+      )
+
+      surv_score <- CalcOakesProfiledSurvivalH1(
+        beta_vec = params$beta_vec,
+        surv_coef = params$surv_coef,
+        survival_context = survival_context,
+        fit_mix_num = theta_pack$fit_mix_num,
+        surv_covar_risk_vec = surv_covar_risk_vec_for_score
+      )
+
+    } else {
+      stop(paste("Unknown survival_baseline_mode:", survival_baseline_mode))
+    }
+
     fill_score("survival",surv_score$score)
     components$survival <- surv_score
   }

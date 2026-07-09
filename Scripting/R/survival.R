@@ -45,14 +45,20 @@ SurvLike <- function(beta_vec,surv_covar_risk_vec,surv_coef,survival_context){
   cbline_vec <- bhaz_vec[[2]]
 
 
-  loglike <- sum(log(bline_vec^surv_event) +
-                   ((re_prob %*% beta_vec)+surv_covar_risk_vec) * surv_event -
-                   cbline_vec*exp((re_prob %*% beta_vec)+surv_covar_risk_vec))
-
-  #UNDERSTAND THIS CHANGE BETTER
   # loglike <- sum(log(bline_vec^surv_event) +
   #                  ((re_prob %*% beta_vec)+surv_covar_risk_vec) * surv_event -
-  #                  cbline_vec*(re_prob %*%exp(beta_vec)+surv_covar_risk_vec))
+  #                  cbline_vec*exp((re_prob %*% beta_vec)+surv_covar_risk_vec))
+
+  #keeping above lines as found this bug after most of runs were done
+  #exponentiating the probabilities in first, should only do that to betas in last line
+  class_event_lp <- drop(re_prob %*% beta_vec)
+  class_risk <- drop(re_prob %*% exp(beta_vec))
+
+  loglike <- sum(
+    log(bline_vec^surv_event) +
+      (class_event_lp + surv_covar_risk_vec) * surv_event -
+      cbline_vec * exp(surv_covar_risk_vec) * class_risk
+  )
 
 
   return(-loglike)
@@ -130,163 +136,97 @@ CalcSurvivalScoreInfo <- function(beta_surv_coef,survival_context,
   grad <- numeric(param_num)
   hess <- matrix(0,param_num,param_num)
 
-  for (ind in which(surv_event == 1)){
-    risk_set <- surv_time >= surv_time[ind]
-    linear_surv_covar_risk <- surv_covar_risk_vec[risk_set]
-    ageadj_risk <- exp(linear_surv_covar_risk) %x% t(exp(beta_vec))
+  if (is.null(dim(re_prob))){
+    re_prob <- matrix(re_prob,ncol = fit_mix_num)
+  }
+  if (ncol(re_prob) != fit_mix_num){
+    stop("survival_context$re_prob must have fit_mix_num columns")
+  }
 
-    num_list <- list()
-
-    num0 <- sum(re_prob[risk_set,] * ageadj_risk *
-                  surv_covar[[1]][risk_set] %x%
-                  t(numeric(fit_mix_num) + 1))
-    num02 <- sum(re_prob[risk_set,] * ageadj_risk *
-                   surv_covar[[1]][risk_set]^2 %x%
-                   t(numeric(fit_mix_num) + 1))
-    num_list[[1]] <- c(num0,num02)
-
-    denom <- sum(re_prob[risk_set,] * ageadj_risk)
-
-    grad[1] <- grad[1] + (surv_covar[[1]][ind] - num0 / denom)
-    hess[1,1] <- hess[1,1] + (num02 / denom) - (num0 / denom)^2
+  build_event_z <- function(ind){
+    z <- numeric(param_num)
+    z[1] <- surv_covar[[1]][ind]
 
     if (fit_mix_num > 1){
-      for (beta_ind in 2:fit_mix_num){
-        num <- sum(re_prob[risk_set,beta_ind] *
-                     exp(beta_vec[beta_ind]) *
-                     exp(linear_surv_covar_risk))
-        grad[beta_ind] <- grad[beta_ind] +
-          (re_prob[ind,beta_ind] - num / denom)
+      z[2:fit_mix_num] <- re_prob[ind,2:fit_mix_num]
+    }
 
-        hess[beta_ind,beta_ind] <- hess[beta_ind,beta_ind] +
-          (num / denom) - (num / denom)^2
+    if (length(surv_covar) > 1){
+      pos <- fit_mix_num + 1
+      for (surv_covar_ind in 2:length(surv_covar)){
+        if (length(surv_coef[[surv_covar_ind]]) <= 1){
+          next
+        }
+        covar_mat <- as.matrix(surv_covar[[surv_covar_ind]])
+        non_ref_cols <- 2:length(surv_coef[[surv_covar_ind]])
+        covar_values <- as.numeric(covar_mat[ind,non_ref_cols,drop = FALSE])
+        idx <- pos:(pos + length(covar_values) - 1)
+        z[idx] <- covar_values
+        pos <- pos + length(covar_values)
+      }
+    }
 
-        num_cross <- sum(re_prob[risk_set,beta_ind] *
-                           exp(beta_vec[beta_ind]) *
-                           exp(linear_surv_covar_risk) *
-                           surv_covar[[1]][risk_set])
-        hess[1,beta_ind] <- hess[1,beta_ind] +
-          (denom * num_cross - num * num0) / denom^2
-        hess[beta_ind,1] <- hess[beta_ind,1] +
-          (denom * num_cross - num * num0) / denom^2
+    z
+  }
+
+  build_risk_set_z <- function(risk_set){
+    risk_n <- sum(risk_set)
+    subject_ind <- rep(seq_len(risk_n),each = fit_mix_num)
+    class_ind <- rep(seq_len(fit_mix_num),times = risk_n)
+    z <- matrix(0,nrow = risk_n * fit_mix_num,ncol = param_num)
+
+    z[,1] <- surv_covar[[1]][risk_set][subject_ind]
+
+    if (fit_mix_num > 1){
+      for (re_ind in 2:fit_mix_num){
+        z[,re_ind] <- as.numeric(class_ind == re_ind)
       }
     }
 
     if (length(surv_covar) > 1){
+      pos <- fit_mix_num + 1
       for (surv_covar_ind in 2:length(surv_covar)){
-        num_disc_covar_vec <- c()
-        for (surv_covar_indicator in 2:length(surv_coef[[surv_covar_ind]])){
-          num_disc_covar <- sum(re_prob[risk_set,] * ageadj_risk *
-                                  surv_covar[[surv_covar_ind]][risk_set,
-                                                                surv_covar_indicator] %x%
-                                  t(numeric(fit_mix_num) + 1))
-
-          num_disc_covar_vec <- c(num_disc_covar_vec,num_disc_covar)
-          num_list[[surv_covar_ind]] <- num_disc_covar_vec
+        if (length(surv_coef[[surv_covar_ind]]) <= 1){
+          next
         }
-      }
-
-      list_of_lens <- unlist(lapply(num_list,length))
-      list_of_lens[1] <- 0
-      list_of_cum_lens <- cumsum(list_of_lens)
-
-      for (surv_covar_ind in 2:length(surv_covar)){
-        starting_index <- fit_mix_num + list_of_cum_lens[surv_covar_ind - 1] + 1
-        ending_index <- fit_mix_num + list_of_cum_lens[surv_covar_ind]
-        curr_covar_inds <- starting_index:ending_index
-
-        grad[curr_covar_inds] <- grad[curr_covar_inds] +
-          surv_covar[[surv_covar_ind]][ind,-1] -
-          num_list[[surv_covar_ind]] / denom
-
-        diag(hess)[curr_covar_inds] <- diag(hess)[curr_covar_inds] +
-          num_list[[surv_covar_ind]] / denom -
-          (num_list[[surv_covar_ind]] / denom)^2
-
-        for (ind_curr_covar_inds in seq_along(curr_covar_inds)){
-          num_cross_age <- sum(re_prob[risk_set,] * ageadj_risk *
-                                 surv_covar[[1]][risk_set] *
-                                 surv_covar[[surv_covar_ind]][risk_set,
-                                                               ind_curr_covar_inds + 1] %x%
-                                 t(numeric(fit_mix_num) + 1))
-          hess[1,curr_covar_inds[ind_curr_covar_inds]] <-
-            hess[1,curr_covar_inds[ind_curr_covar_inds]] +
-            (denom * num_cross_age -
-               num_list[[surv_covar_ind]][[ind_curr_covar_inds]] * num0) /
-            denom^2
-          hess[curr_covar_inds[ind_curr_covar_inds],1] <-
-            hess[curr_covar_inds[ind_curr_covar_inds],1] +
-            (denom * num_cross_age -
-               num_list[[surv_covar_ind]][[ind_curr_covar_inds]] * num0) /
-            denom^2
-        }
-
-        if (fit_mix_num > 1){
-          for (beta_ind in 2:fit_mix_num){
-            num <- sum(re_prob[risk_set,beta_ind] *
-                         exp(beta_vec[beta_ind]) *
-                         exp(linear_surv_covar_risk))
-
-            for (ind_curr_covar_inds in seq_along(curr_covar_inds)){
-              num_cross <- sum(re_prob[risk_set,beta_ind] *
-                                 exp(beta_vec[beta_ind]) *
-                                 exp(linear_surv_covar_risk) *
-                                 surv_covar[[surv_covar_ind]][risk_set,
-                                                               ind_curr_covar_inds + 1])
-              hess[curr_covar_inds[ind_curr_covar_inds],beta_ind] <-
-                hess[curr_covar_inds[ind_curr_covar_inds],beta_ind] +
-                (denom * num_cross -
-                   num * num_list[[surv_covar_ind]][[ind_curr_covar_inds]]) /
-                denom^2
-
-              hess[beta_ind,curr_covar_inds[ind_curr_covar_inds]] <-
-                hess[beta_ind,curr_covar_inds[ind_curr_covar_inds]] +
-                (denom * num_cross -
-                   num * num_list[[surv_covar_ind]][[ind_curr_covar_inds]]) /
-                denom^2
-            }
-          }
-        }
-
-        if (surv_covar_ind != length(surv_covar)){
-          for (surv_covar_ind2 in (surv_covar_ind + 1):length(surv_covar)){
-            starting_index2 <- fit_mix_num +
-              list_of_cum_lens[surv_covar_ind2 - 1] + 1
-            ending_index2 <- fit_mix_num + list_of_cum_lens[surv_covar_ind2]
-            curr_covar_inds2 <- starting_index2:ending_index2
-
-            for (ind_curr_covar_inds in seq_along(curr_covar_inds)){
-              for (ind_curr_covar_inds2 in seq_along(curr_covar_inds2)){
-                num_cross_covar <- sum(re_prob[risk_set,] * ageadj_risk *
-                                         surv_covar[[surv_covar_ind]][risk_set,
-                                                                      ind_curr_covar_inds + 1] *
-                                         surv_covar[[surv_covar_ind2]][risk_set,
-                                                                       ind_curr_covar_inds2 + 1] %x%
-                                         t(numeric(fit_mix_num) + 1))
-
-                hess[curr_covar_inds2[ind_curr_covar_inds2],
-                     curr_covar_inds[ind_curr_covar_inds]] <-
-                  hess[curr_covar_inds2[ind_curr_covar_inds2],
-                       curr_covar_inds[ind_curr_covar_inds]] +
-                  (denom * num_cross_covar -
-                     num_list[[surv_covar_ind]][[ind_curr_covar_inds]] *
-                     num_list[[surv_covar_ind2]][[ind_curr_covar_inds2]]) /
-                  denom^2
-
-                hess[curr_covar_inds[ind_curr_covar_inds],
-                     curr_covar_inds2[ind_curr_covar_inds2]] <-
-                  hess[curr_covar_inds[ind_curr_covar_inds],
-                       curr_covar_inds2[ind_curr_covar_inds2]] +
-                  (denom * num_cross_covar -
-                     num_list[[surv_covar_ind]][[ind_curr_covar_inds]] *
-                     num_list[[surv_covar_ind2]][[ind_curr_covar_inds2]]) /
-                  denom^2
-              }
-            }
-          }
-        }
+        covar_mat <- as.matrix(surv_covar[[surv_covar_ind]])
+        non_ref_cols <- 2:length(surv_coef[[surv_covar_ind]])
+        covar_block <- covar_mat[risk_set,non_ref_cols,drop = FALSE]
+        idx <- pos:(pos + length(non_ref_cols) - 1)
+        z[,idx] <- covar_block[subject_ind,,drop = FALSE]
+        pos <- pos + length(non_ref_cols)
       }
     }
+
+    z
+  }
+
+  for (ind in which(surv_event == 1)){
+    risk_set <- surv_time >= surv_time[ind]
+    linear_surv_covar_risk <- surv_covar_risk_vec[risk_set]
+
+    risk_weight_mat <- re_prob[risk_set,,drop = FALSE] *
+      matrix(exp(linear_surv_covar_risk),nrow = sum(risk_set),
+             ncol = fit_mix_num) *
+      matrix(exp(beta_vec),nrow = sum(risk_set),ncol = fit_mix_num,
+             byrow = TRUE)
+    risk_n <- nrow(risk_weight_mat)
+    subject_ind <- rep(seq_len(risk_n),each = fit_mix_num)
+    class_ind <- rep(seq_len(fit_mix_num),times = risk_n)
+    risk_weights <- risk_weight_mat[cbind(subject_ind,class_ind)]
+    denom <- sum(risk_weights)
+
+    if (!is.finite(denom) || denom <= 0){
+      stop("Non-positive or non-finite survival risk-set denominator")
+    }
+
+    z <- build_risk_set_z(risk_set)
+    risk_prob <- risk_weights / denom
+    ez <- colSums(sweep(z,1,risk_prob,`*`))
+    ezz <- crossprod(z,sweep(z,1,risk_prob,`*`))
+
+    grad <- grad + build_event_z(ind) - ez
+    hess <- hess + ezz - tcrossprod(ez)
   }
 
   hess <- 0.5 * (hess + t(hess))
@@ -304,6 +244,19 @@ CalcBetaManual <- function(beta_surv_coef,surv_covar_risk_vec,stop_crit,
   l2norm <- 101
   hess <- NULL
   while (l2norm > stop_crit){
+
+    beta_surv_coef_list <- OutofBetaSurvCoef(
+      beta_surv_coef,
+      surv_coef_len,
+      fit_mix_num
+    )
+
+    beta_vec <- beta_surv_coef_list[[1]]
+    surv_coef <- beta_surv_coef_list[[2]]
+    surv_covar_risk_vec <- SurvCovarRiskVec(
+      survival_context$surv_covar,
+      surv_coef
+    )
     score_info <- CalcSurvivalScoreInfo(beta_surv_coef,
                                         survival_context,
                                         surv_coef_len,
@@ -334,8 +287,22 @@ CalcBetaManual <- function(beta_surv_coef,surv_covar_risk_vec,stop_crit,
                                          surv_coef_len,fit_mix_num)[[2]]
       max_val <- abs(max(c(beta_vec_new,unlist(surv_coef_new))))
 
-      new_slike <- SurvLike(beta_vec_new,surv_covar_risk_vec,surv_coef_new,
-                            survival_context)
+      #removed this and added following lines because was having an issue where old baselines were used
+      #shouldnt change too much hopefully
+      # new_slike <- SurvLike(beta_vec_new,surv_covar_risk_vec,surv_coef_new,
+      #                       survival_context)
+
+      surv_covar_risk_vec_new <- SurvCovarRiskVec(
+        survival_context$surv_covar,
+        surv_coef_new
+      )
+
+      new_slike <- SurvLike(
+        beta_vec_new,
+        surv_covar_risk_vec_new,
+        surv_coef_new,
+        survival_context
+      )
       slike_diff <- old_slike - new_slike
     }
 

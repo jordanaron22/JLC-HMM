@@ -27,7 +27,11 @@ oakes_data_context <- list(act = act,
                            bline_vec = bline_vec,
                            cbline_vec = cbline_vec,
                            incl_surv = incl_surv,
-                           beta_bool = beta_bool)
+                           beta_bool = beta_bool,
+                           survival_baseline_mode = "profiled",
+                           profile_maxit = 100L,
+                           profile_tol = 1e-9,
+                           profile_damping = 1.0)
 
 posterior_context <- RebuildOakesPosteriorContext(
   theta = theta_pack$theta,
@@ -68,12 +72,23 @@ mix_h1 <- CalcOakesMixingH1(nu_mat = oakes_params$nu_mat,
                             re_prob = posterior_context$re_prob,
                             nu_covar_mat = nu_covar_mat)
 
-surv_h1 <- CalcOakesSurvivalH1(
-  beta_vec = oakes_params$beta_vec,
-  surv_coef = oakes_params$surv_coef,
-  survival_context = posterior_context$survival_context,
-  fit_mix_num = mix_num,
-  cbline_vec = posterior_context$cbline_vec)
+if (oakes_data_context$survival_baseline_mode == "fixed") {
+  surv_h1 <- CalcOakesSurvivalH1(
+    beta_vec = oakes_params$beta_vec,
+    surv_coef = oakes_params$surv_coef,
+    survival_context = posterior_context$survival_context,
+    fit_mix_num = mix_num,
+    cbline_vec = posterior_context$cbline_vec)
+} else {
+  surv_h1 <- CalcOakesProfiledSurvivalH1(
+    beta_vec = oakes_params$beta_vec,
+    surv_coef = oakes_params$surv_coef,
+    survival_context = posterior_context$survival_context,
+    fit_mix_num = mix_num,
+    surv_covar_risk_vec = posterior_context$surv_covar_risk_vec
+  )
+}
+
 
 emit_h1 <- CalcOakesEmissionH1(alpha = posterior_context$alpha,
                                beta = posterior_context$beta,
@@ -109,13 +124,10 @@ H1 <- bdiag(init_h1$hessian,tran_h1$hessian,emit_h1$hessian,
 # solve(-H1)
 
 
-oakes_data_context_h2 <- oakes_data_context
-oakes_data_context_h2$bline_vec <- NULL
-oakes_data_context_h2$cbline_vec <- NULL
 
 h2_1e5 <- CalcOakesH2(
   theta_pack = theta_pack,
-  data_context = oakes_data_context_h2,
+  data_context = oakes_data_context,
   eps = 1e-5
 )
 
@@ -143,52 +155,46 @@ bad <- which(diag(vcov) < 0)
 
 se = sqrt(diag(vcov))
 
-# DiagnoseOakesInformation(H1, H2)
 
 
-# h2_1e4_new <- CalcOakesH2(
-#   theta_pack = theta_pack,
-#   data_context = oakes_data_context,
-#   eps = 1e-4
-# )
+I <- I_obs_sym
+pm <- theta_pack$parameter_map
 
-# H2_1e4 <- h2_1e4_new$hessian
-# DiagnoseOakesInformation(H1, H2_1e4)
+surv_idx <- which(pm$block == "survival")
+nuis_idx <- setdiff(seq_len(nrow(I)), surv_idx)
 
-# eig <- eigen(I_obs_sym, symmetric = TRUE)
+I_ss <- I[surv_idx, surv_idx, drop = FALSE]
+I_nn <- I[nuis_idx, nuis_idx, drop = FALSE]
+I_ns <- I[nuis_idx, surv_idx, drop = FALSE]
 
-# tol <- 1e-8 * max(eig$values)
-# vals_fixed <- pmax(eig$values, tol)
+S_surv <- I_ss - t(I_ns) %*% solve(I_nn, I_ns)
+S_surv <- 0.5 * (S_surv + t(S_surv))
 
-# I_obs_pd <- eig$vectors %*% diag(vals_fixed) %*% t(eig$vectors)
-# I_obs_pd <- 0.5 * (I_obs_pd + t(I_obs_pd))
+eigen(S_surv, symmetric = TRUE)$values
 
-# vcov_pd <- solve(I_obs_pd)
-# se_pd <- sqrt(diag(vcov_pd))
+vcov_surv <- solve(S_surv)
+se_surv <- sqrt(diag(vcov_surv))
 
-
-
-# pm <- theta_pack$parameter_map
-
-# surv_class_idx <- which(
-#   pm$block == "survival" &
-#     grepl("^class_", pm$param_name)
-# )
-
-# pm[surv_class_idx, c("index", "block", "param_name")]
-# se_pd[surv_class_idx]
+data.frame(
+  parameter = pm$param_name[surv_idx],
+  se = se_surv
+)
 
 
-# I_h1_only <- -as.matrix(H1)
-# vcov_h1_only <- solve(I_h1_only)
-# se_h1_only <- sqrt(diag(vcov_h1_only))
 
-# compare_surv_class_se <- data.frame(
-#   index = surv_class_idx,
-#   parameter = pm$param_name[surv_class_idx],
-#   se_h1_only = se_h1_only[surv_class_idx],
-#   se_oakes_pd = se_pd[surv_class_idx],
-#   ratio_oakes_to_h1 = se_pd[surv_class_idx] / se_h1_only[surv_class_idx]
-# )
+s_surv <- oakes_score$score[surv_idx]
+delta_surv <- solve(S_surv, s_surv)
+vcov_surv <- solve(S_surv)
+se_surv <- sqrt(diag(vcov_surv))
 
-# compare_surv_class_se
+score_check <- data.frame(
+  parameter = pm$param_name[surv_idx],
+  score = s_surv,
+  newton_step = delta_surv,
+  se = se_surv,
+  step_over_se = delta_surv / se_surv
+)
+
+score_check
+max(abs(score_check$step_over_se))
+max(abs(delta_surv / se_surv)) < 0.05
