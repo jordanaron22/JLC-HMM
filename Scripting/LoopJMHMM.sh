@@ -2,22 +2,22 @@
 
 declare -A ResourceLimit
 
-array_start=111
-array_end=200
+array_start=1
+array_end=10
 
 # key: simulation_days|num_people|fit_mix_num|model_type|emission_overlap
 # value: recommended_time_hours memory_limit_gb
-ResourceLimit["1|5000|5|joint|low"]="9 6"
+ResourceLimit["1|5000|5|joint|low"]="9 7"
 ResourceLimit["3|5000|5|joint|low"]="9 9"
 ResourceLimit["7|5000|5|joint|low"]="9 11"
 
-ResourceLimit["1|5000|5|joint|high"]="17 6"
+ResourceLimit["1|5000|5|joint|high"]="17 7"
 ResourceLimit["3|5000|5|joint|high"]="27 8"
 ResourceLimit["7|5000|5|joint|high"]="52 11"
 
-ResourceLimit["1|5000|5|joint|mid"]="17 6"
-ResourceLimit["3|5000|5|joint|mid"]="27 8"
-ResourceLimit["7|5000|5|joint|mid"]="52 11"
+ResourceLimit["1|5000|5|joint|mid"]="12 7"
+ResourceLimit["3|5000|5|joint|mid"]="15 8"
+ResourceLimit["7|5000|5|joint|mid"]="15 11"
 
 ResourceLimit["1|5000|5|two_stage|low"]="10 6"
 ResourceLimit["3|5000|5|two_stage|low"]="10 6"
@@ -27,9 +27,9 @@ ResourceLimit["1|5000|5|two_stage|high"]="14 7"
 ResourceLimit["3|5000|5|two_stage|high"]="37 8"
 ResourceLimit["7|5000|5|two_stage|high"]="58 10"
 
-ResourceLimit["1|5000|5|two_stage|mid"]="14 7"
-ResourceLimit["3|5000|5|two_stage|mid"]="37 8"
-ResourceLimit["7|5000|5|two_stage|mid"]="58 10"
+ResourceLimit["1|5000|5|two_stage|mid"]="12 7"
+ResourceLimit["3|5000|5|two_stage|mid"]="13 8"
+ResourceLimit["7|5000|5|two_stage|mid"]="31 10"
 
 
 ResourceLimit["1|5000|2|joint|low"]="3 6"

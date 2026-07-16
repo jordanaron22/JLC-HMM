@@ -3,7 +3,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --mail-type=FAIL,TIME_LIMIT
 #SBATCH --mail-user=aron0064@umn.edu
-#SBATCH --array=111-200
+#SBATCH --array=1-10
 #SBATCH -A mfiecas
 #SBATCH -o LogFiles/%A_%a.out
 #SBATCH -e LogFiles/%A_%a.err
