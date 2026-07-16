@@ -545,7 +545,6 @@ RebuildProfiledPosteriorContext <- function(theta,theta_pack,data_context,
   log_surv_mat <- NULL
 
   for (iter in seq_len(maxit)){
-    print(iter)
     bhaz_vec <- CalcBLHaz(params$surv_coef,params$beta_vec,
                           re_prob_cur,surv_covar_risk_vec,
                           survival_context$surv_event,

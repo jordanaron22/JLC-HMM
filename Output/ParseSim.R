@@ -162,6 +162,73 @@ q95_finite <- function(x){
   unname(quantile(x,0.95,names = FALSE,type = 7))
 }
 
+mean_finite <- function(x){
+  x <- suppressWarnings(as.numeric(x))
+  x <- x[is.finite(x)]
+  if (length(x) == 0){
+    return(NA_real_)
+  }
+  mean(x)
+}
+
+get_re_prob <- function(saved){
+  est_params <- saved[["est_params"]]
+  if (!is.null(est_params) && !is.null(est_params[["re_prob"]])){
+    return(est_params[["re_prob"]])
+  }
+
+  if (length(saved) >= 2 && length(saved[[2]]) >= 10){
+    return(saved[[2]][[10]])
+  }
+
+  NULL
+}
+
+calc_mean_entropy <- function(saved){
+  re_prob <- get_re_prob(saved)
+  if (is.null(re_prob)){
+    return(NA_real_)
+  }
+  if (is.null(dim(re_prob))){
+    re_prob <- matrix(re_prob,ncol = 1)
+  }
+  re_prob <- as.matrix(re_prob)
+  if (any(!is.finite(re_prob)) || any(re_prob < 0)){
+    return(NA_real_)
+  }
+
+  entropy_terms <- matrix(0,nrow(re_prob),ncol(re_prob))
+  positive_prob <- re_prob > 0
+  entropy_terms[positive_prob] <-
+    re_prob[positive_prob] * log(re_prob[positive_prob])
+
+  -mean(rowSums(entropy_terms))
+}
+
+add_mean_summary <- function(summary_data,data,value_col,summary_col,
+                             scenario_cols){
+  if (!value_col %in% names(data)){
+    return(summary_data)
+  }
+
+  summary_input <- data[,scenario_cols,drop = FALSE]
+  summary_input$value <- suppressWarnings(as.numeric(data[[value_col]]))
+  summary_input <- summary_input[is.finite(summary_input$value),,drop = FALSE]
+
+  if (nrow(summary_input) == 0){
+    return(summary_data)
+  }
+
+  mean_data <- aggregate(
+    value ~ true_mix_num + fit_mix_num + model_type +
+      simulation_days + num_people + emission_overlap,
+    data = summary_input,
+    FUN = mean_finite
+  )
+  names(mean_data)[names(mean_data) == "value"] <- summary_col
+  merge(summary_data,mean_data,by = scenario_cols,all.x = TRUE)
+}
+
 add_numeric_summaries <- function(summary_data,data,value_col,prefix,
                                   scenario_cols){
   if (!value_col %in% names(data)){
@@ -225,6 +292,7 @@ parse_one_file <- function(file){
 
   row[["aic"]] <- if (is_scalar(saved[["aic"]])) saved[["aic"]] else NA
   row[["bic"]] <- if (is_scalar(saved[["bic"]])) saved[["bic"]] else NA
+  row[["mean_entropy"]] <- calc_mean_entropy(saved)
   row <- c(row,flatten_diagnostics(diagnostics))
 
   row
@@ -284,6 +352,14 @@ if (nrow(results) > 0 && all(scenario_cols %in% names(results))){
     FUN = function(x) length(unique(x))
   )
   names(scenario_counts)[names(scenario_counts) == "sim_num"] <- "n_seeds"
+
+  scenario_counts <- add_mean_summary(
+    scenario_counts,
+    results,
+    "mean_entropy",
+    "mean_entropy",
+    scenario_cols
+  )
 
   scenario_counts <- add_numeric_summaries(
     scenario_counts,
@@ -417,6 +493,9 @@ scenario_counts_file <- if (grepl("[.]rds$",output_file,ignore.case = TRUE)){
 # saveRDS(scenario_counts,scenario_counts_file)
 # message("Saved scenario counts to: ",scenario_counts_file)
 
-adjust_submissions <- scenario_counts |> dplyr::select(fit_mix_num,model_type,simulation_days,emission_overlap,n_seeds,max_time_limit_hours,recommended_time_hours,recommended_mem_gb,) |>
+adjust_submissions <- scenario_counts |> dplyr::select(fit_mix_num,model_type,simulation_days,emission_overlap,n_seeds,mean_entropy,max_time_limit_hours,recommended_time_hours,recommended_mem_gb,) |>
   dplyr::arrange(fit_mix_num,model_type,simulation_days,emission_overlap) 
+
 adjust_submissions
+
+adjust_submissions|> filter(fit_mix_num == 5)

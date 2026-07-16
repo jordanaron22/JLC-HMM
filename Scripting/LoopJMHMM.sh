@@ -15,6 +15,10 @@ ResourceLimit["1|5000|5|joint|high"]="17 6"
 ResourceLimit["3|5000|5|joint|high"]="27 8"
 ResourceLimit["7|5000|5|joint|high"]="52 11"
 
+ResourceLimit["1|5000|5|joint|mid"]="17 6"
+ResourceLimit["3|5000|5|joint|mid"]="27 8"
+ResourceLimit["7|5000|5|joint|mid"]="52 11"
+
 ResourceLimit["1|5000|5|two_stage|low"]="10 6"
 ResourceLimit["3|5000|5|two_stage|low"]="10 6"
 ResourceLimit["7|5000|5|two_stage|low"]="10 8"
@@ -22,6 +26,10 @@ ResourceLimit["7|5000|5|two_stage|low"]="10 8"
 ResourceLimit["1|5000|5|two_stage|high"]="14 7"
 ResourceLimit["3|5000|5|two_stage|high"]="37 8"
 ResourceLimit["7|5000|5|two_stage|high"]="58 10"
+
+ResourceLimit["1|5000|5|two_stage|mid"]="14 7"
+ResourceLimit["3|5000|5|two_stage|mid"]="37 8"
+ResourceLimit["7|5000|5|two_stage|mid"]="58 10"
 
 
 ResourceLimit["1|5000|2|joint|low"]="3 6"
@@ -49,42 +57,50 @@ ResourceLimit["3|5000|8|joint|low"]="44 9"
 ResourceLimit["7|5000|8|joint|low"]="80 13"
 
 ScenarioKeys=(
-    "1|5000|5|joint|low"
-    "3|5000|5|joint|low"
-    "7|5000|5|joint|low"
+    # "1|5000|5|joint|low"
+    # "3|5000|5|joint|low"
+    # "7|5000|5|joint|low"
+
+    "1|5000|5|joint|mid"
+    "3|5000|5|joint|mid"
+    "7|5000|5|joint|mid"
 
     # "1|5000|5|joint|high"
     # "3|5000|5|joint|high"
     # "7|5000|5|joint|high"
 
-    "1|5000|5|two_stage|low"
-    "3|5000|5|two_stage|low"
-    "7|5000|5|two_stage|low"
+    # "1|5000|5|two_stage|low"
+    # "3|5000|5|two_stage|low"
+    # "7|5000|5|two_stage|low"
+
+    "1|5000|5|two_stage|mid"
+    "3|5000|5|two_stage|mid"
+    "7|5000|5|two_stage|mid"
 
     # "1|5000|5|two_stage|high"
     # "3|5000|5|two_stage|high"
     # "7|5000|5|two_stage|high"
 
-    "1|5000|2|joint|low"
-    "1|5000|3|joint|low"
-    "1|5000|4|joint|low"
-    "1|5000|6|joint|low"
-    "1|5000|7|joint|low"
-    "1|5000|8|joint|low"
+    # "1|5000|2|joint|low"
+    # "1|5000|3|joint|low"
+    # "1|5000|4|joint|low"
+    # "1|5000|6|joint|low"
+    # "1|5000|7|joint|low"
+    # "1|5000|8|joint|low"
 
-    "3|5000|2|joint|low"
-    "3|5000|3|joint|low"
-    "3|5000|4|joint|low"
-    "3|5000|6|joint|low"
-    "3|5000|7|joint|low"
-    "3|5000|8|joint|low"
+    # "3|5000|2|joint|low"
+    # "3|5000|3|joint|low"
+    # "3|5000|4|joint|low"
+    # "3|5000|6|joint|low"
+    # "3|5000|7|joint|low"
+    # "3|5000|8|joint|low"
 
-    "7|5000|2|joint|low"
-    "7|5000|3|joint|low"
-    "7|5000|4|joint|low"
-    "7|5000|6|joint|low"
-    "7|5000|7|joint|low"
-    "7|5000|8|joint|low"
+    # "7|5000|2|joint|low"
+    # "7|5000|3|joint|low"
+    # "7|5000|4|joint|low"
+    # "7|5000|6|joint|low"
+    # "7|5000|7|joint|low"
+    # "7|5000|8|joint|low"
 
 )
 
@@ -122,8 +138,15 @@ for scenario_key in "${ScenarioKeys[@]}"; do
         low)
             overlap_label="Low"
             ;;
+        mid)
+            overlap_label="Mid"
+            ;;
         high)
             overlap_label="High"
+            ;;
+        *)
+            echo "Unknown emission_overlap: $emission_overlap" >&2
+            exit 1
             ;;
     esac
 
