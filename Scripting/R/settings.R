@@ -16,7 +16,7 @@ default_settings <- list(
   fit_mix_num = 5,
   true_mix_num = 5, # set to  NA_real_ to match fit_mix_num by default
   model_type = "joint", # "joint", "two_stage"
-  data_source = "nhanes", #"nhanes" or "simulation"
+  data_source = "simulation", #"nhanes" or "simulation"
   run_bootstrap = FALSE,
   init_jitter_scale = 0.1,
   run_leave_one_out_cv = FALSE,

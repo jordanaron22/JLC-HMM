@@ -88,7 +88,8 @@ prepare_nhanes_data <- function(period_len,bootstrap,leave_out,sim_num,
     stop("LMF data are not linked to NHANES actigraphy records correctly")
   }
 
-  log_sweights_vec <- log(id$sweights/NHANES_NUM_WAVES)
+  sweights_vec_raw <- id$sweights/NHANES_NUM_WAVES
+  sweights_vec <- sweights_vec_raw/mean(sweights_vec_raw)
 
   id <- id %>% mutate(age_disc = case_when(age <= 30 ~ 1,
                                            age <= 50 & age > 30 ~ 2,
@@ -107,7 +108,8 @@ prepare_nhanes_data <- function(period_len,bootstrap,leave_out,sim_num,
     id <- id[boot_inds,]
     surv_event <- surv_event[boot_inds]
     surv_time <- surv_time[boot_inds]
-    log_sweights_vec <- log(id$sweights/NHANES_NUM_WAVES)
+    sweights_vec <- id$sweights/NHANES_NUM_WAVES
+    sweights_vec <- sweights_vec/mean(sweights_vec)
   }
 
   act_old <- act
@@ -127,7 +129,7 @@ prepare_nhanes_data <- function(period_len,bootstrap,leave_out,sim_num,
     id_old <- id
     surv_event_old <- surv_event
     surv_time_old <- surv_time
-    log_sweights_vec_old <- log_sweights_vec
+    sweights_vec_old <- sweights_vec
 
     first_day_vec_old <- as.numeric(id_old$PAXDAYWM)
     vcovar_mat_old <- sapply(first_day_vec_old,FirstDay2WeekInd)
@@ -143,13 +145,14 @@ prepare_nhanes_data <- function(period_len,bootstrap,leave_out,sim_num,
     id <- id[-leave_out_inds,]
     surv_event <- surv_event[-leave_out_inds]
     surv_time <- surv_time[-leave_out_inds]
-    log_sweights_vec <- log(id$sweights/NHANES_NUM_WAVES)
+    sweights_vec <- id$sweights/NHANES_NUM_WAVES
+    sweights_vec <- sweights_vec/mean(sweights_vec)
 
     leave_out_data <- list(leave_out_inds = leave_out_inds,
                            id_old = id_old,
                            surv_event_old = surv_event_old,
                            surv_time_old = surv_time_old,
-                           log_sweights_vec_old = log_sweights_vec_old,
+                           sweights_vec_old = sweights_vec_old,
                            vcovar_mat_old = vcovar_mat_old,
                            surv_covar_old = surv_covar_old,
                            nu_covar_mat_old = nu_covar_mat_old)
@@ -211,7 +214,7 @@ prepare_nhanes_data <- function(period_len,bootstrap,leave_out,sim_num,
          mims = mims,
          lod_act = lod_act,
          lod_light = lod_light,
-         log_sweights_vec = log_sweights_vec,
+         sweights_vec = sweights_vec,
          surv_event = surv_event,
          surv_time = surv_time,
          act_old = act_old,

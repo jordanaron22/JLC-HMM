@@ -26,7 +26,7 @@ CondMarginalize <- function(alpha,beta,pi_l){
 }
 
 #calculates initial probability
-CalcInit <- function(alpha, beta,pi_l,log_sweights_vec){
+CalcInit <- function(alpha, beta,pi_l,sweights_vec){
 
   #setup
   num_obs <- dim(alpha[[1]][,,1])[1]
@@ -41,8 +41,8 @@ CalcInit <- function(alpha, beta,pi_l,log_sweights_vec){
   for(ind in 1:length(alpha)){
     ind_like <- ind_like_vec[ind]
 
-    init_0_vec[ind,] <- alpha[[ind]][time,1,] + beta[[ind]][time,1,] + log(pi_l[ind,]) - ind_like + log_sweights_vec[ind]
-    init_1_vec[ind,] <- alpha[[ind]][time,2,] + beta[[ind]][time,2,] + log(pi_l[ind,]) - ind_like + log_sweights_vec[ind]
+    init_0_vec[ind,] <- alpha[[ind]][time,1,] + beta[[ind]][time,1,] + log(pi_l[ind,]) - ind_like + log(sweights_vec[ind])
+    init_1_vec[ind,] <- alpha[[ind]][time,2,] + beta[[ind]][time,2,] + log(pi_l[ind,]) - ind_like + log(sweights_vec[ind])
   }
 
   #normalizes
@@ -77,8 +77,15 @@ CalcProbRE <- function(alpha,pi_l){
 }
 
 #calculates overall likelihood by summing individual likelihood
-CalcLikelihood <- function(alpha,pi_l){
-  return(sum(CalcLikelihoodIndVec(alpha,pi_l)))
+#accounts for sample weights vector
+CalcLikelihood <- function(alpha, pi_l, sweigts_vec){
+  individual_loglik <- CalcLikelihoodIndVec(alpha, pi_l)
+
+  if (length(sweigts_vec) != length(individual_loglik)){
+    stop("sample_weights must have one value per subject")
+  }
+
+  sum(sweigts_vec * individual_loglik)
 }
 
 #calculates likelihood vector, each individual as entry
@@ -227,7 +234,7 @@ ForwardAlt <- function(post_decode_collapsed,init,tran_list,vcovar_mat,
 Forward <- function(act, light,init,tran_list,
                     emit_act, emit_light,
                     lod_act, lod_light, corr_mat, beta_vec, surv_coef, surv_covar_risk_vec,
-                    event_vec, bline_vec, cbline_vec, lintegral_mat, log_sweights_vec,
+                    event_vec, bline_vec, cbline_vec, lintegral_mat,
                     surv_covar, vcovar_mat, lambda_act_mat, lambda_light_mat, tobit, incl_surv,
                     beta_bool, mix_num = dim(emit_act)[3]){
 
@@ -247,14 +254,13 @@ Forward <- function(act, light,init,tran_list,
 
   for (ind in 1:dim(act)[2]){
     alpha_array <- array(NA,dim = c(day_length,2,mix_num))
-    ind_log_sweight <- log_sweights_vec[ind]
     covar_risk <- surv_covar_risk_vec[ind]
 
     for (clust_i in 1:mix_num){
       alpha_array[,,clust_i] <- ForwardIndC(act[,ind], light[,ind], init[clust_i,], tran_list, emit_act_week, emit_light_week,
                                             emit_act_weekend, emit_light_weekend,clust_i-1, lod_act, lod_light, corr_mat,
                                             beta_vec,covar_risk,event_vec[ind], bline_vec[ind], cbline_vec[ind], lintegral_mat,
-                                            ind_log_sweight, vcovar_mat[,ind],lambda_act_mat, lambda_light_mat, tobit, adj_incl_surv*beta_bool)
+                                            vcovar_mat[,ind],lambda_act_mat, lambda_light_mat, tobit, adj_incl_surv*beta_bool)
       alpha_list[[ind]] <- alpha_array
     }
   }

@@ -236,8 +236,9 @@ if (!real_data){
   surv_time <- surv_list$time
   surv_event <- surv_list$event
   
-  #in simulated data sample weights are set to 0
-  log_sweights_vec <- numeric(dim(act)[2])
+  #in simulated data sample weights are set to 1
+  sweights_vec <- rep(1, dim(act)[2])
+
   
   # Independent test data for out-of-sample survival diagnostics.
   simulated_hmm_test <- SimulateHMM(
@@ -415,7 +416,7 @@ if (is.null(dim(re_prob))){re_prob <- matrix(re_prob,ncol = 1)}
 validate_hmm_data(act,light,vcovar_mat)
 validate_survival_inputs(surv_time,surv_event,surv_covar,num_of_people)
 survival_context <- make_survival_context(surv_time,surv_event,surv_covar,
-                                          re_prob,fit_mix_num)
+                                          re_prob,fit_mix_num,sweights_vec)
 
 surv_coef_len <- unlist(lapply(surv_coef,length))
 surv_covar_risk_vec <- SurvCovarRiskVec(surv_covar,surv_coef)
@@ -432,7 +433,7 @@ if(!incl_act){
 #calculates baseline hazards
 bhaz_vec <- CalcBLHaz(surv_coef,beta_vec,survival_context$re_prob,
                       surv_covar_risk_vec,survival_context$surv_event,
-                      survival_context$surv_time,survival_context$surv_covar)
+                      survival_context$surv_time,survival_context$surv_covar, survival_context$sweights_vec)
 bline_vec <- bhaz_vec[[1]]
 cbline_vec <- bhaz_vec[[2]]
 
@@ -448,7 +449,7 @@ alpha <- Forward(act = act,light = light,
          lod_act = lod_act, lod_light = lod_light, 
          corr_mat = corr_mat, beta_vec = beta_vec, surv_coef = surv_coef,surv_covar_risk_vec = surv_covar_risk_vec,
          event_vec = surv_event, bline_vec = bline_vec, cbline_vec = cbline_vec,
-         lintegral_mat = lintegral_mat,log_sweights_vec = log_sweights_vec,
+         lintegral_mat = lintegral_mat,
          surv_covar = surv_covar, vcovar_mat = vcovar_mat,
          lambda_act_mat = lambda_act_mat,lambda_light_mat = lambda_light_mat,
          tobit = tobit,incl_surv = incl_surv,beta_bool = beta_bool,
@@ -462,7 +463,7 @@ beta <- Backward(act = act,light = light, tran_list = tran_list,
                   tobit = tobit,mix_num = mix_num,day_length = day_length)
          
 print("Post Beta")
-new_likelihood <- CalcLikelihood(alpha,pi_l)
+new_likelihood <- CalcLikelihood(alpha,pi_l,sweights_vec)
 if (incl_surv == MODEL_TYPE_CODES[["joint"]] & beta_bool == 0){new_likelihood <- new_likelihood - SurvLike(beta_vec,surv_covar_risk_vec,surv_coef,survival_context)}
 likelihood_vec <- c(new_likelihood)
 likelihood <- -Inf
@@ -485,7 +486,7 @@ em_inputs <- list(
     vcovar_mat = vcovar_mat,
     lod_act = lod_act,
     lod_light = lod_light,
-    log_sweights_vec = log_sweights_vec
+    sweights_vec = sweights_vec
   ),
   survival = list(
     time = surv_time,
@@ -535,7 +536,7 @@ while((abs(like_diff) > em_control$convergence_tolerance |
   #need model to fit a bit first otherwise may run into some instability
   if(beta_bool){
 
-    nu_mat  <- CalcNu(nu_mat,re_prob,nu_covar_mat,alpha = alpha,
+    nu_mat  <- CalcNu(nu_mat,re_prob,nu_covar_mat,alpha = alpha, sweights_vec = sweights_vec,
                       mix_num = mix_num,num_of_people = num_of_people)
     pi_l <- CalcPi(nu_mat,nu_covar_mat)
     re_prob <- CalcProbRE(alpha,pi_l)
@@ -558,7 +559,7 @@ while((abs(like_diff) > em_control$convergence_tolerance |
 
       bhaz_vec <- CalcBLHaz(surv_coef,beta_vec,survival_context$re_prob,
                             surv_covar_risk_vec,survival_context$surv_event,
-                            survival_context$surv_time,survival_context$surv_covar)
+                            survival_context$surv_time,survival_context$surv_covar, survival_context$sweights_vec)
       bline_vec <- bhaz_vec[[1]]
       cbline_vec <- bhaz_vec[[2]]
     }
@@ -568,38 +569,41 @@ while((abs(like_diff) > em_control$convergence_tolerance |
   ##### E-step: posterior wake/sleep weights #####
   #calculates wake/sleep probabilities, needed for emission dist estimation
   weights_array_list <- CondMarginalize(alpha,beta,pi_l)
+
   weights_array_wake <- exp(weights_array_list[[1]])
   weights_array_sleep <- exp(weights_array_list[[2]])
 
+  weights_array_wake_emit <- sweep(weights_array_wake, 2, sweights_vec, "*")
+  weights_array_sleep_emit <- sweep(weights_array_sleep, 2, sweights_vec, "*")
   
   ##### M-step: Tobit emission parameters #####
   if(incl_light){
 
-    emit_light[1,1,,] <- UpdateNorm(CalcLightMean,1,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake,weights_array_sleep,vcovar_mat+1)
-    emit_light[2,1,,] <- UpdateNorm(CalcLightMean,2,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake,weights_array_sleep,vcovar_mat+1)
+    emit_light[1,1,,] <- UpdateNorm(CalcLightMean,1,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake_emit,weights_array_sleep_emit,vcovar_mat+1)
+    emit_light[2,1,,] <- UpdateNorm(CalcLightMean,2,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake_emit,weights_array_sleep_emit,vcovar_mat+1)
 
-    emit_light[1,2,,] <- UpdateNorm(CalcLightSig,1,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake,weights_array_sleep,vcovar_mat+1)
-    emit_light[2,2,,] <- UpdateNorm(CalcLightSig,2,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake,weights_array_sleep,vcovar_mat+1)
+    emit_light[1,2,,] <- UpdateNorm(CalcLightSig,1,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake_emit,weights_array_sleep_emit,vcovar_mat+1)
+    emit_light[2,2,,] <- UpdateNorm(CalcLightSig,2,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake_emit,weights_array_sleep_emit,vcovar_mat+1)
   }
 
   if (incl_act){
-    emit_act[1,2,,] <- UpdateNorm(CalcActSig,1,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake,weights_array_sleep,vcovar_mat+1)
-    emit_act[2,2,,] <- UpdateNorm(CalcActSig,2,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake,weights_array_sleep,vcovar_mat+1)
+    emit_act[1,2,,] <- UpdateNorm(CalcActSig,1,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake_emit,weights_array_sleep_emit,vcovar_mat+1)
+    emit_act[2,2,,] <- UpdateNorm(CalcActSig,2,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake_emit,weights_array_sleep_emit,vcovar_mat+1)
 
-    emit_act[1,1,,] <- UpdateNorm(CalcActMean,1,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake,weights_array_sleep,vcovar_mat+1)
-    emit_act[2,1,,] <- UpdateNorm(CalcActMean,2,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake,weights_array_sleep,vcovar_mat+1)
+    emit_act[1,1,,] <- UpdateNorm(CalcActMean,1,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake_emit,weights_array_sleep_emit,vcovar_mat+1)
+    emit_act[2,1,,] <- UpdateNorm(CalcActMean,2,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake_emit,weights_array_sleep_emit,vcovar_mat+1)
   }
 
   if (incl_act & incl_light){
-    corr_mat[,1,] <- UpdateNorm(CalcBivarCorr,1,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake,weights_array_sleep,vcovar_mat+1)
-    corr_mat[,2,] <- UpdateNorm(CalcBivarCorr,2,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake,weights_array_sleep,vcovar_mat+1)
+    corr_mat[,1,] <- UpdateNorm(CalcBivarCorr,1,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake_emit,weights_array_sleep_emit,vcovar_mat+1)
+    corr_mat[,2,] <- UpdateNorm(CalcBivarCorr,2,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake_emit,weights_array_sleep_emit,vcovar_mat+1)
 
   }
   
   ##### M-step: initial-state probabilities #####
   #this only relies on normal parameters so calculate it now
   lintegral_mat <- CalcLintegralMat(emit_act,emit_light,corr_mat,lod_act,lod_light)
-  init <- CalcInit(alpha,beta,pi_l,log_sweights_vec)
+  init <- CalcInit(alpha,beta,pi_l,sweights_vec)
   
   ##### M-step: transition parameters #####
   #saves old transition values in case likelihood decrease
@@ -610,7 +614,8 @@ while((abs(like_diff) > em_control$convergence_tolerance |
                                         pi_l,lod_act,lod_light,lintegral_mat,vcovar_mat,
                                         lambda_act_mat, lambda_light_mat, tobit,
                                         em_control$check_transition_update,likelihood,
-                                        period_len = period_len, vcovar_num = vcovar_num)
+                                        period_len = period_len, sweights_vec = sweights_vec,
+                                        vcovar_num = vcovar_num)
 
   tran_check_context <- list(day_length = em_inputs$dimensions$day_length,
                              period_len = em_inputs$dimensions$period_len,
@@ -631,7 +636,7 @@ while((abs(like_diff) > em_control$convergence_tolerance |
                              bline_vec = bline_vec,
                              cbline_vec = cbline_vec,
                              lintegral_mat = lintegral_mat,
-                             log_sweights_vec = em_inputs$longitudinal$log_sweights_vec,
+                             sweights_vec = em_inputs$longitudinal$sweights_vec,
                              surv_covar = em_inputs$survival$covariates,
                              vcovar_mat = em_inputs$longitudinal$vcovar_mat,
                              lambda_act_mat = lambda_act_mat,
@@ -656,13 +661,13 @@ while((abs(like_diff) > em_control$convergence_tolerance |
                    lod_act = lod_act, lod_light = lod_light,
                    corr_mat = corr_mat, beta_vec = beta_vec, surv_coef = surv_coef,surv_covar_risk_vec = surv_covar_risk_vec,
                    event_vec = surv_event, bline_vec = bline_vec, cbline_vec = cbline_vec,
-                   lintegral_mat = lintegral_mat,log_sweights_vec = log_sweights_vec,
+                   lintegral_mat = lintegral_mat,
                    surv_covar = surv_covar, vcovar_mat = vcovar_mat,
                    lambda_act_mat = lambda_act_mat,lambda_light_mat = lambda_light_mat,
                    tobit = tobit,incl_surv = incl_surv*beta_bool,
                    beta_bool = beta_bool,mix_num = mix_num)
   
-  new_likelihood <- CalcLikelihood(alpha,pi_l)
+  new_likelihood <- CalcLikelihood(alpha,pi_l,sweights_vec)
   
   #if JM but during cold start, dont wan to actually include survial in likelihood yet
   if (incl_surv == MODEL_TYPE_CODES[["joint"]] & beta_bool == 0){new_likelihood <- new_likelihood - SurvLike(beta_vec,surv_covar_risk_vec,surv_coef,survival_context)}
@@ -688,13 +693,13 @@ while((abs(like_diff) > em_control$convergence_tolerance |
                      lod_act = lod_act, lod_light = lod_light,
                      corr_mat = corr_mat, beta_vec = beta_vec, surv_coef = surv_coef, surv_covar_risk_vec = surv_covar_risk_vec,
                      event_vec = surv_event, bline_vec = bline_vec, cbline_vec = cbline_vec,
-                     lintegral_mat = lintegral_mat,log_sweights_vec = log_sweights_vec,
+                     lintegral_mat = lintegral_mat,
                      surv_covar = surv_covar, vcovar_mat = vcovar_mat,
                      lambda_act_mat = lambda_act_mat,lambda_light_mat = lambda_light_mat,
                      tobit = tobit,incl_surv = incl_surv,
                      beta_bool = beta_bool,mix_num = mix_num)
 
-    new_likelihood <- CalcLikelihood(alpha,pi_l)
+    new_likelihood <- CalcLikelihood(alpha,pi_l,sweights_vec)
     if (incl_surv == MODEL_TYPE_CODES[["joint"]] & beta_bool == 0){new_likelihood <- new_likelihood - SurvLike(beta_vec,surv_covar_risk_vec,surv_coef,survival_context)}
     like_diff <- new_likelihood - likelihood
   }
@@ -817,7 +822,7 @@ while((abs(like_diff) > em_control$convergence_tolerance |
 
       bhaz_vec <- CalcBLHaz(surv_coef,beta_vec,survival_context$re_prob,
                             surv_covar_risk_vec,survival_context$surv_event,
-                            survival_context$surv_time,survival_context$surv_covar)
+                            survival_context$surv_time,survival_context$surv_covar, survival_context$sweights_vec)
       bline_vec <- bhaz_vec[[1]]
       cbline_vec <- bhaz_vec[[2]]
 
@@ -871,13 +876,13 @@ while((abs(like_diff) > em_control$convergence_tolerance |
                        lod_act = lod_act, lod_light = lod_light, 
                        corr_mat = corr_mat, beta_vec = beta_vec, surv_coef = surv_coef,surv_covar_risk_vec = surv_covar_risk_vec,
                        event_vec = surv_event, bline_vec = bline_vec, cbline_vec = cbline_vec,
-                       lintegral_mat = lintegral_mat,log_sweights_vec = log_sweights_vec,
+                       lintegral_mat = lintegral_mat,
                        surv_covar = surv_covar, vcovar_mat = vcovar_mat,
                        lambda_act_mat = lambda_act_mat,lambda_light_mat = lambda_light_mat,
                        tobit = tobit,incl_surv = incl_surv*beta_bool,
                        beta_bool = beta_bool,mix_num = mix_num)
       
-      new_likelihood <- CalcLikelihood(alpha,pi_l)
+      new_likelihood <- CalcLikelihood(alpha,pi_l,sweights_vec)
       like_diff <- em_control$convergence_tolerance * 1.1
     }
       
@@ -894,6 +899,23 @@ while((abs(like_diff) > em_control$convergence_tolerance |
                    tobit = tobit,mix_num = mix_num,day_length = day_length)
   
 } # end EM loop
+
+######
+#These probabilities are calculated in the beginning of the previous while loop
+#need to recalculate them otherwise we'll get slightly stale values
+re_prob <- CalcProbRE(alpha, pi_l)
+
+survival_context <- update_survival_context_re_prob(
+  survival_context,
+  re_prob,
+  fit_mix_num
+)
+
+weights_array_list <- CondMarginalize(alpha, beta, pi_l)
+
+weights_array_wake <- exp(weights_array_list[[1]])
+weights_array_sleep <- exp(weights_array_list[[2]])
+######
 
 likelihood_changes <- diff(likelihood_vec)
 em_convergence <- list(
@@ -935,7 +957,7 @@ if (incl_surv != MODEL_TYPE_CODES[["joint"]]){
   
   bhaz_vec <- CalcBLHaz(surv_coef,beta_vec,survival_context$re_prob,
                         surv_covar_risk_vec,survival_context$surv_event,
-                        survival_context$surv_time,survival_context$surv_covar)
+                        survival_context$surv_time,survival_context$surv_covar, survival_context$sweights_vec)
   bline_vec <- bhaz_vec[[1]]
   cbline_vec <- bhaz_vec[[2]]
 }
@@ -1026,7 +1048,7 @@ if (leave_out){
   surv_event_new <- surv_event_old[leave_out_inds]
   surv_time_new <- surv_time_old[leave_out_inds]
   
-  log_sweights_vec_new <- log_sweights_vec_old[leave_out_inds]
+  sweights_vec_new <- sweights_vec_old[leave_out_inds]
 
 
   
@@ -1096,7 +1118,7 @@ if (leave_out){
                      event_vec = numeric(ncol(new_act_working)),
                      bline_vec = numeric(ncol(new_act_working)),
                      cbline_vec = numeric(ncol(new_act_working)),
-                      lintegral_mat = lintegral_mat,log_sweights_vec = log_sweights_vec_new,
+                      lintegral_mat = lintegral_mat,
                       surv_covar = new_surv_covar, vcovar_mat = new_vcovar_mat,
                       lambda_act_mat = lambda_act_mat,lambda_light_mat = lambda_light_mat,
                       tobit = T,incl_surv = MODEL_TYPE_CODES[["two_stage"]],
@@ -1286,7 +1308,6 @@ if (!real_data){
     bline_vec = numeric(ncol(test_act)),
     cbline_vec = numeric(ncol(test_act)),
     lintegral_mat = lintegral_mat,
-    log_sweights_vec = numeric(ncol(test_act)),
     surv_covar = test_data$surv_covar,
     vcovar_mat = test_data$vcovar_mat,
     lambda_act_mat = lambda_act_mat,

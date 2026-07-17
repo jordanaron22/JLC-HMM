@@ -172,7 +172,8 @@ CalcGradHess <- function(gradient,hessian_vec,cos_part_vec,sin_part_vec,cos_sin_
 CalcTranCHelper <- function(alpha,beta,act,light,params_tran_array,emit_act,emit_light,
                       corr_mat,pi_l,lod_act,lod_light,lintegral_mat, vcovar_mat,
                       lambda_act_mat, lambda_light_mat, tobit, check_tran,likelihood,
-                      period_len, vcovar_num = dim(params_tran_array)[3]){
+                      period_len, sweights_vec,
+                      vcovar_num = dim(params_tran_array)[3]){
 
   len <- dim(act)[1]
   mix_num <- dim(emit_act)[3]
@@ -203,7 +204,19 @@ CalcTranCHelper <- function(alpha,beta,act,light,params_tran_array,emit_act,emit
     for (new_state in 1:2){
 
       tran_vals <- tran_vals_re_array[init_state,new_state,,,]
-      if (mix_num  == 1){dim(tran_vals)[3] <- 1}
+
+      if (mix_num == 1){
+        dim(tran_vals) <- c(dim(tran_vals), 1)
+      }
+
+      #tran_vals dimensions: time x participant x latent class
+      #accounts for sample weights
+      weighted_tran_vals <- sweep(
+        tran_vals,
+        MARGIN = 2,
+        STATS = sweights_vec,
+        FUN = "*"
+      )
 
       for (ind in 1:length(alpha)){
 
@@ -212,7 +225,6 @@ CalcTranCHelper <- function(alpha,beta,act,light,params_tran_array,emit_act,emit
         vcovar_vecR <- vcovar_vec + 1
 
         for(re_ind in 1:mix_num){
-
           #calculates transition over week/weekend
           if (vcovar_num == 1){
             tran_mat <- tran_list_mat[[re_ind]][[1]]
@@ -252,18 +264,18 @@ CalcTranCHelper <- function(alpha,beta,act,light,params_tran_array,emit_act,emit
           for (vcovar_ind in 1:vcovar_num){
 
             #grad and hessian calculations
-            gradient[init_state,1,re_ind,vcovar_ind] <- gradient[init_state,1,re_ind,vcovar_ind] + sum(tran_vals[,ind,re_ind]*tran_prime*(vcovar_vecR==vcovar_ind))
-            gradient[init_state,2,re_ind,vcovar_ind] <- gradient[init_state,2,re_ind,vcovar_ind] + sum(tran_vals[,ind,re_ind]*tran_prime*cos_vec*(vcovar_vecR==vcovar_ind))
-            gradient[init_state,3,re_ind,vcovar_ind] <- gradient[init_state,3,re_ind,vcovar_ind] + sum(tran_vals[,ind,re_ind]*tran_prime*sin_vec*(vcovar_vecR==vcovar_ind))
+            gradient[init_state,1,re_ind,vcovar_ind] <- gradient[init_state,1,re_ind,vcovar_ind] + sum(weighted_tran_vals[,ind,re_ind]*tran_prime*(vcovar_vecR==vcovar_ind))
+            gradient[init_state,2,re_ind,vcovar_ind] <- gradient[init_state,2,re_ind,vcovar_ind] + sum(weighted_tran_vals[,ind,re_ind]*tran_prime*cos_vec*(vcovar_vecR==vcovar_ind))
+            gradient[init_state,3,re_ind,vcovar_ind] <- gradient[init_state,3,re_ind,vcovar_ind] + sum(weighted_tran_vals[,ind,re_ind]*tran_prime*sin_vec*(vcovar_vecR==vcovar_ind))
 
-            hessian_vec[init_state,1,re_ind,vcovar_ind] <- hessian_vec[init_state,1,re_ind,vcovar_ind] + sum(tran_vals[,ind,re_ind]*tran_prime_prime*(vcovar_vecR==vcovar_ind))
-            hessian_vec[init_state,2,re_ind,vcovar_ind] <- hessian_vec[init_state,2,re_ind,vcovar_ind] + sum(tran_vals[,ind,re_ind]*tran_prime_prime*cos_vec^2*(vcovar_vecR==vcovar_ind))
-            hessian_vec[init_state,3,re_ind,vcovar_ind] <- hessian_vec[init_state,3,re_ind,vcovar_ind] + sum(tran_vals[,ind,re_ind]*tran_prime_prime*sin_vec^2*(vcovar_vecR==vcovar_ind))
+            hessian_vec[init_state,1,re_ind,vcovar_ind] <- hessian_vec[init_state,1,re_ind,vcovar_ind] + sum(weighted_tran_vals[,ind,re_ind]*tran_prime_prime*(vcovar_vecR==vcovar_ind))
+            hessian_vec[init_state,2,re_ind,vcovar_ind] <- hessian_vec[init_state,2,re_ind,vcovar_ind] + sum(weighted_tran_vals[,ind,re_ind]*tran_prime_prime*cos_vec^2*(vcovar_vecR==vcovar_ind))
+            hessian_vec[init_state,3,re_ind,vcovar_ind] <- hessian_vec[init_state,3,re_ind,vcovar_ind] + sum(weighted_tran_vals[,ind,re_ind]*tran_prime_prime*sin_vec^2*(vcovar_vecR==vcovar_ind))
 
-            cos_part_vec[init_state,re_ind,vcovar_ind] <- cos_part_vec[init_state,re_ind,vcovar_ind] + sum(tran_vals[,ind,re_ind]*tran_prime_prime*cos_vec*(vcovar_vecR==vcovar_ind))
-            sin_part_vec[init_state,re_ind,vcovar_ind] <- sin_part_vec[init_state,re_ind,vcovar_ind] + sum(tran_vals[,ind,re_ind]*tran_prime_prime*sin_vec*(vcovar_vecR==vcovar_ind))
+            cos_part_vec[init_state,re_ind,vcovar_ind] <- cos_part_vec[init_state,re_ind,vcovar_ind] + sum(weighted_tran_vals[,ind,re_ind]*tran_prime_prime*cos_vec*(vcovar_vecR==vcovar_ind))
+            sin_part_vec[init_state,re_ind,vcovar_ind] <- sin_part_vec[init_state,re_ind,vcovar_ind] + sum(weighted_tran_vals[,ind,re_ind]*tran_prime_prime*sin_vec*(vcovar_vecR==vcovar_ind))
 
-            cos_sin_part[init_state,re_ind,vcovar_ind] <- cos_sin_part[init_state,re_ind,vcovar_ind] + sum(tran_vals[,ind,re_ind]*tran_prime_prime*cos_vec*sin_vec*(vcovar_vecR==vcovar_ind))
+            cos_sin_part[init_state,re_ind,vcovar_ind] <- cos_sin_part[init_state,re_ind,vcovar_ind] + sum(weighted_tran_vals[,ind,re_ind]*tran_prime_prime*cos_vec*sin_vec*(vcovar_vecR==vcovar_ind))
           }
         }
       }
@@ -326,13 +338,12 @@ LM <- function(grad_array,hess_array,params_tran_array,check_tran,likelihood,pi_
                      event_vec = ctx$surv_event, bline_vec = ctx$bline_vec,
                      cbline_vec = ctx$cbline_vec,
                      lintegral_mat = ctx$lintegral_mat,
-                     log_sweights_vec = ctx$log_sweights_vec,
                      surv_covar = ctx$surv_covar, vcovar_mat = ctx$vcovar_mat,
                      lambda_act_mat = ctx$lambda_act_mat,
                      lambda_light_mat = ctx$lambda_light_mat,
                      tobit = ctx$tobit,incl_surv = ctx$incl_surv,
                      beta_bool = ctx$beta_bool, mix_num = ctx$mix_num)
-    new_like <- CalcLikelihood(alpha,pi_l)
+    new_like <- CalcLikelihood(alpha,pi_l,ctx$sweights_vec)
 
     if (new_like < likelihood){
       # return(list(params_tran_array,alpha))
@@ -415,53 +426,97 @@ CalcPi <- function(nu_mat,nu_covar_mat){
 
 #Calculates ordinal logistic regression coef for pi
 #Uses LM
-CalcNu <- function(nu_mat,re_prob,nu_covar_mat,alpha,
+CalcNu <- function(nu_mat,re_prob,nu_covar_mat,alpha,sweights_vec,
                    mix_num = ncol(re_prob),
                    num_of_people = nrow(re_prob)){
-  if(dim(re_prob)[2] == 1){return(nu_mat)}
-  old_mlike <- CalcLikelihood(alpha,CalcPi(nu_mat,nu_covar_mat))
+
+  if (ncol(re_prob) == 1){
+    return(nu_mat)
+  }
+
+  if (length(sweights_vec) != num_of_people){
+    stop("sweights_vec must have one value per participant")
+  }
+
+  old_mlike <- CalcLikelihood(
+    alpha,
+    CalcPi(nu_mat,nu_covar_mat),
+    sweights_vec
+  )
+
   mlike_diff <- -1
-  nnu_covar <- dim(nu_covar_mat)[2]
+  nnu_covar <- ncol(nu_covar_mat)
   gradient_nu <- numeric(mix_num * nnu_covar)
   hess_nu <- matrix(0,mix_num*nnu_covar,mix_num*nnu_covar)
 
-  for (ind in 1:num_of_people){
+  for (ind in seq_len(num_of_people)){
     age_ind_vec <- nu_covar_mat[ind,]
     age_ind_mat <- age_ind_vec %*% t(age_ind_vec)
 
-    num <- exp(colSums(nu_mat * nu_covar_mat[ind,]))
-    denom <- sum(num)
-    p_vec <- num/denom
+    w_i <- sweights_vec[ind]
 
-    pvec_grad <- (re_prob[ind,] - p_vec)
+    #subtracts by max to avoid overflow
+    #doesnt change probabilities
+    eta <- colSums(nu_mat * nu_covar_mat[ind,])
+    eta <- eta - max(eta)
+
+    num <- exp(eta)
+    p_vec <- num / sum(num)
+
+    pvec_grad <- re_prob[ind,] - p_vec
     pvec_grad[1] <- 0
-    gradient_nu <- gradient_nu + pvec_grad %x% age_ind_vec
+
+    gradient_nu <- gradient_nu +
+      w_i * (pvec_grad %x% age_ind_vec)
 
     p_vec[1] <- 0
     p_mat <- p_vec %x% t(p_vec)
     diag(p_mat) <- -p_vec * (1-p_vec)
-    hess_nu <- hess_nu + p_mat %x% age_ind_mat
+
+    hess_nu <- hess_nu +
+      w_i * (p_mat %x% age_ind_mat)
   }
 
-  hess_nu <- hess_nu[c(-(1:nnu_covar)),c(-(1:nnu_covar))]
-  gradient_nu <- gradient_nu[c(-(1:nnu_covar))]
+  reference_indices <- seq_len(nnu_covar)
 
-  inf_mat <- numeric(length(gradient_nu))-1
+  hess_nu <- hess_nu[
+    -reference_indices,
+    -reference_indices,
+    drop = FALSE
+  ]
+
+  gradient_nu <- gradient_nu[-reference_indices]
+
+  inf_mat <- numeric(length(gradient_nu)) - 1
 
   step_size <- .01
-  while(mlike_diff < 0 | all(inf_mat == -1)){
-    step_fact <- matrix(0,dim(hess_nu)[1],dim(hess_nu)[2])
 
+  while (mlike_diff < 0 || all(inf_mat == -1)){
+    step_fact <- matrix(0,nrow(hess_nu),ncol(hess_nu))
     diag(step_fact) <- step_size - .01
 
-    inf_mat <- SolveCatch(hess_nu+step_fact,gradient_nu)
+    #this was accidentally + previously
+    inf_mat <- SolveCatch(
+      hess_nu - step_fact,
+      gradient_nu
+    )
+
     step_size <- step_size * 10
 
-    nu_mat_lm <-cbind(rep(0,nnu_covar),matrix(inf_mat,nrow = nnu_covar,byrow = F))
-    nu_mat_new <- nu_mat - nu_mat_lm
+    nu_mat_lm <- cbind(
+      rep(0,nnu_covar),
+      matrix(inf_mat,nrow = nnu_covar,byrow = FALSE)
+    )
 
+    nu_mat_new <- nu_mat - nu_mat_lm
     pi_l_new <- CalcPi(nu_mat_new,nu_covar_mat)
-    new_mlike <- CalcLikelihood(alpha,pi_l_new)
+
+    new_mlike <- CalcLikelihood(
+      alpha,
+      pi_l_new,
+      sweights_vec
+    )
+
     mlike_diff <- new_mlike - old_mlike
   }
 

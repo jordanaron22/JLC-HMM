@@ -305,7 +305,7 @@ CalcOakesTransitionPosteriorWeights <- function(alpha,beta,pi_l,act,light,
                  tobit = tobit)
 }
 
-BuildOakesPosteriorContext <- function(alpha,beta,pi_l,log_sweights_vec,
+BuildOakesPosteriorContext <- function(alpha,beta,pi_l,sweights_vec,
                                        act,light,vcovar_mat,
                                        params_tran_array,
                                        emit_act,emit_light,corr_mat,
@@ -344,9 +344,9 @@ BuildOakesPosteriorContext <- function(alpha,beta,pi_l,log_sweights_vec,
   list(alpha = alpha,
        beta = beta,
        pi_l = pi_l,
-       log_sweights_vec = log_sweights_vec,
+       sweights_vec = sweights_vec,
        init_counts = CalcOakesInitialCounts(alpha,beta,pi_l,
-                                            log_sweights_vec),
+                                            sweights_vec),
        transition_weights =
          CalcOakesTransitionPosteriorWeights(alpha = alpha,
                                              beta = beta,
@@ -503,7 +503,6 @@ RebuildProfiledPosteriorContext <- function(theta,theta_pack,data_context,
                         bline_vec = rep(1,length(survival_context$surv_event)),
                         cbline_vec = rep(0,length(survival_context$surv_event)),
                         lintegral_mat = lintegral_mat,
-                        log_sweights_vec = data_context$log_sweights_vec,
                         surv_covar = survival_context$surv_covar,
                         vcovar_mat = data_context$vcovar_mat,
                         lambda_act_mat = data_context$lambda_act_mat,
@@ -549,7 +548,8 @@ RebuildProfiledPosteriorContext <- function(theta,theta_pack,data_context,
                           re_prob_cur,surv_covar_risk_vec,
                           survival_context$surv_event,
                           survival_context$surv_time,
-                          survival_context$surv_covar)
+                          survival_context$surv_covar,
+                          survival_context$sweights_vec)
     bline_vec <- bhaz_vec[[1]]
     cbline_vec <- bhaz_vec[[2]]
 
@@ -569,7 +569,7 @@ RebuildProfiledPosteriorContext <- function(theta,theta_pack,data_context,
         alpha = alpha,
         beta = beta,
         pi_l = pi_l,
-        log_sweights_vec = data_context$log_sweights_vec,
+        sweights_vec = data_context$sweights_vec,
         act = data_context$act,
         light = data_context$light,
         vcovar_mat = data_context$vcovar_mat,
@@ -677,7 +677,6 @@ RebuildOakesPosteriorContext <- function(theta,theta_pack,data_context,
                    bline_vec = bline_vec,
                    cbline_vec = cbline_vec,
                    lintegral_mat = lintegral_mat,
-                   log_sweights_vec = data_context$log_sweights_vec,
                    surv_covar = survival_context$surv_covar,
                    vcovar_mat = data_context$vcovar_mat,
                    lambda_act_mat = data_context$lambda_act_mat,
@@ -716,8 +715,8 @@ RebuildOakesPosteriorContext <- function(theta,theta_pack,data_context,
   BuildOakesPosteriorContext(alpha = alpha,
                              beta = beta,
                              pi_l = pi_l,
-                             log_sweights_vec =
-                               data_context$log_sweights_vec,
+                             sweights_vec =
+                               data_context$sweights_vec,
                              act = data_context$act,
                              light = data_context$light,
                              vcovar_mat = data_context$vcovar_mat,
@@ -1022,13 +1021,13 @@ DiagnoseOakesInformation <- function(H1,H2){
                                          sum(minus_eigen <= 0)))
 }
 
-CalcOakesInitialCounts <- function(alpha,beta,pi_l,log_sweights_vec){
+CalcOakesInitialCounts <- function(alpha,beta,pi_l,sweights_vec){
   mix_num <- ncol(pi_l)
   state_num <- dim(alpha[[1]])[2]
   counts <- matrix(0,nrow = mix_num,ncol = state_num)
 
-  if (length(log_sweights_vec) != length(alpha)){
-    stop("log_sweights_vec must have one entry per subject")
+  if (length(sweights_vec) != length(alpha)){
+    stop("sweights_vec must have one entry per subject")
   }
 
   ind_like_vec <- CalcLikelihoodIndVec(alpha,pi_l)
@@ -1041,7 +1040,7 @@ CalcOakesInitialCounts <- function(alpha,beta,pi_l,log_sweights_vec){
         beta[[ind]][1,,g] +
         log(pi_l[ind,g]) -
         ind_like +
-        log_sweights_vec[ind]
+        log(sweights_vec[ind])
 
       counts[g,] <- counts[g,] + exp(log_count)
     }
@@ -1077,7 +1076,7 @@ CalcOakesInitialH1 <- function(init,init_counts,
        counts = init_counts)
 }
 
-CalcOakesMixingH1 <- function(nu_mat,re_prob,nu_covar_mat){
+CalcOakesMixingH1 <- function(nu_mat,re_prob,nu_covar_mat, sweights_vec){
   mix_num <- ncol(nu_mat)
   nu_covar_num <- nrow(nu_mat)
   num_people <- nrow(nu_covar_mat)
@@ -1108,6 +1107,8 @@ CalcOakesMixingH1 <- function(nu_mat,re_prob,nu_covar_mat){
     x_vec <- nu_covar_mat[ind,]
     x_outer <- x_vec %*% t(x_vec)
 
+    w_i <- sweights_vec[ind]
+
     eta <- colSums(nu_mat * x_vec)
     #soft max for numerical stability incase of overflow
     eta <- eta - max(eta)
@@ -1116,13 +1117,13 @@ CalcOakesMixingH1 <- function(nu_mat,re_prob,nu_covar_mat){
 
     class_score <- re_prob[ind,] - pi_vec
     class_score[1] <- 0
-    full_score <- full_score + class_score %x% x_vec
+    full_score <- full_score + w_i*(class_score %x% x_vec)
 
     pi_work <- pi_vec
     pi_work[1] <- 0
     class_hessian <- pi_work %x% t(pi_work)
     diag(class_hessian) <- -pi_work * (1 - pi_work)
-    full_hessian <- full_hessian + class_hessian %x% x_outer
+    full_hessian <- full_hessian + w_i*(class_hessian %x% x_outer)
   }
 
   reference_idx <- seq_len(nu_covar_num)
@@ -1204,6 +1205,7 @@ CalcOakesFixedBaselineSurvivalScoreInfo <- function(beta_vec,surv_coef,
   re_prob <- survival_context$re_prob
   surv_event <- survival_context$surv_event
   surv_covar <- survival_context$surv_covar
+  sweights_vec <- survival_context$sweights_vec
 
   if (is.null(dim(re_prob))){
     re_prob <- matrix(re_prob,ncol = fit_mix_num)
@@ -1238,19 +1240,18 @@ CalcOakesFixedBaselineSurvivalScoreInfo <- function(beta_vec,surv_coef,
   baseline_risk <- cbline_vec * exp_surv_covar
   event_minus_risk <- surv_event - baseline_risk * class_risk
 
-  score[common_index] <- colSums(design * event_minus_risk)
+  score[common_index] <- colSums(design * (sweights_vec * event_minus_risk))
   hessian[common_index,common_index] <-
-    -crossprod(design,design * (baseline_risk * class_risk))
+    -crossprod(design,design * (sweights_vec * baseline_risk * class_risk))
 
   if (fit_mix_num > 1){
     for (re_ind in 2:fit_mix_num){
       class_risk_ind <- baseline_risk * weighted_class_risk[,re_ind]
 
-      score[re_ind] <- sum(surv_event * re_prob[,re_ind] -
-                             class_risk_ind)
-      hessian[re_ind,re_ind] <- -sum(class_risk_ind)
+      score[re_ind] <- sum(sweights_vec * (surv_event * re_prob[,re_ind] -class_risk_ind))
+      hessian[re_ind,re_ind] <- -sum(sweights_vec * class_risk_ind)
 
-      cross_val <- -colSums(design * class_risk_ind)
+      cross_val <- -colSums(design * (sweights_vec * class_risk_ind))
       hessian[common_index,re_ind] <- cross_val
       hessian[re_ind,common_index] <- cross_val
     }
@@ -1358,6 +1359,7 @@ EmissionBlockObjective <- function(psi,act,light,lod_act,lod_light,
 CalcOakesEmissionScore <- function(alpha,beta,pi_l,act,light,vcovar_mat,
                                    emit_act,emit_light,corr_mat,
                                    lod_act,lod_light,
+                                   sweights_vec,
                                    vcovar_num = dim(emit_act)[4]){
   if (!requireNamespace("numDeriv",quietly = TRUE)){
     stop("CalcOakesEmissionScore requires the numDeriv package")
@@ -1372,8 +1374,10 @@ CalcOakesEmissionScore <- function(alpha,beta,pi_l,act,light,vcovar_mat,
   emit_data <- PrepareEmitLogLikeData(act,light,vcovar_mat_emit)
 
   weights_array_list <- CondMarginalize(alpha,beta,pi_l)
-  weights_array <- list(exp(weights_array_list[[1]]),
-                        exp(weights_array_list[[2]]))
+  weights_array <- list(
+    sweep(exp(weights_array_list[[1]]), 2, sweights_vec, "*"),
+    sweep(exp(weights_array_list[[2]]), 2, sweights_vec, "*")
+  )
 
   block_count <- length(active_vcovar_inds) * mix_num * state_num
   score <- numeric(block_count * block_size)
@@ -1425,6 +1429,7 @@ CalcOakesEmissionScore <- function(alpha,beta,pi_l,act,light,vcovar_mat,
 CalcOakesEmissionH1 <- function(alpha,beta,pi_l,act,light,vcovar_mat,
                                 emit_act,emit_light,corr_mat,
                                 lod_act,lod_light,
+                                sweights_vec,
                                 vcovar_num = dim(emit_act)[4]){
   if (!requireNamespace("numDeriv",quietly = TRUE)){
     stop("CalcOakesEmissionH1 requires the numDeriv package")
@@ -1439,8 +1444,10 @@ CalcOakesEmissionH1 <- function(alpha,beta,pi_l,act,light,vcovar_mat,
   emit_data <- PrepareEmitLogLikeData(act,light,vcovar_mat_emit)
 
   weights_array_list <- CondMarginalize(alpha,beta,pi_l)
-  weights_array <- list(exp(weights_array_list[[1]]),
-                        exp(weights_array_list[[2]]))
+  weights_array <- list(
+    sweep(exp(weights_array_list[[1]]), 2, sweights_vec, "*"),
+    sweep(exp(weights_array_list[[2]]), 2, sweights_vec, "*")
+  )
 
   block_count <- length(active_vcovar_inds) * mix_num * state_num
   hessian <- matrix(0,nrow = block_count * block_size,
@@ -1539,6 +1546,7 @@ CalcOakesTransitionScoreFromPosterior <- function(params_tran_array,
                                                   vcovar_mat,
                                                   active_vcovar_inds,
                                                   period_len,
+                                                  sweights_vec,
                                                   drop_nonfinite_weights =
                                                     TRUE){
   len <- dim(vcovar_mat)[1]
@@ -1584,7 +1592,7 @@ CalcOakesTransitionScoreFromPosterior <- function(params_tran_array,
             tran_prime <- tran_mat[,4]
           }
 
-          transition_weight <- tran_vals[,ind,re_ind]
+          transition_weight <- (tran_vals[,ind,re_ind] * sweights_vec[ind])
           finite_weight <- is.finite(transition_weight)
           dropped_weight_count <- dropped_weight_count + sum(!finite_weight)
           if (!drop_nonfinite_weights && any(!finite_weight)){
@@ -1647,7 +1655,7 @@ CalcOakesTransitionH1 <- function(alpha,beta,act,light,params_tran_array,
                                   emit_act,emit_light,corr_mat,pi_l,
                                   lod_act,lod_light,lintegral_mat,vcovar_mat,
                                   lambda_act_mat,lambda_light_mat,tobit,
-                                  period_len,
+                                  period_len, sweights_vec,
                                   vcovar_num = dim(params_tran_array)[3]){
   active_vcovar_inds <- ActiveTransitionDayTypes(vcovar_mat,vcovar_num)
 
@@ -1670,6 +1678,7 @@ CalcOakesTransitionH1 <- function(alpha,beta,act,light,params_tran_array,
                                    check_tran = FALSE,
                                    likelihood = NA,
                                    period_len = period_len,
+                                   sweights_vec = sweights_vec,
                                    vcovar_num = vcovar_num)
 
   score_array <- tran_gradhess[[1]]
@@ -1693,6 +1702,12 @@ CalcOakesScore <- function(theta,theta_pack,posterior_context,
   names(score) <- names(theta)
   components <- list()
 
+  sweights_vec <-
+    GetOakesContextValue(
+      posterior_context,
+      "sweights_vec"
+    )
+
   fill_score <- function(block,block_score){
     idx <- which(parameter_map$block == block)
     if (length(idx) != length(block_score)){
@@ -1711,8 +1726,8 @@ CalcOakesScore <- function(theta,theta_pack,posterior_context,
         alpha = GetOakesContextValue(posterior_context,"alpha"),
         beta = GetOakesContextValue(posterior_context,"beta"),
         pi_l = GetOakesContextValue(posterior_context,"pi_l"),
-        log_sweights_vec =
-          GetOakesContextValue(posterior_context,"log_sweights_vec"))
+        sweights_vec =
+          GetOakesContextValue(posterior_context,"sweights_vec"))
     }
 
     init_score <- CalcOakesInitialH1(params$init,init_counts,
@@ -1780,6 +1795,7 @@ CalcOakesScore <- function(theta,theta_pack,posterior_context,
       vcovar_mat = GetOakesContextValue(posterior_context,"vcovar_mat"),
       active_vcovar_inds = theta_pack$active_tran_vcovar_inds,
       period_len = GetOakesContextValue(posterior_context,"period_len"),
+      sweights_vec = sweights_vec,
       drop_nonfinite_weights = drop_nonfinite_transition_weights)
     fill_score("transition",tran_score$score)
     components$transition <- tran_score
@@ -1798,7 +1814,8 @@ CalcOakesScore <- function(theta,theta_pack,posterior_context,
       emit_light = params$emit_light,
       corr_mat = params$corr_mat,
       lod_act = GetOakesContextValue(posterior_context,"lod_act"),
-      lod_light = GetOakesContextValue(posterior_context,"lod_light"))
+      lod_light = GetOakesContextValue(posterior_context,"lod_light"),
+      sweights_vec = sweights_vec)
     fill_score("emission",emit_score$score)
     components$emission <- emit_score
   }
@@ -1816,7 +1833,8 @@ CalcOakesScore <- function(theta,theta_pack,posterior_context,
       nu_mat = params$nu_mat,
       re_prob = re_prob,
       nu_covar_mat = GetOakesContextValue(posterior_context,
-                                          "nu_covar_mat"))
+                                          "nu_covar_mat"),
+      sweights_vec)
     fill_score("mixing",mix_score$score)
     components$mixing <- mix_score
   }

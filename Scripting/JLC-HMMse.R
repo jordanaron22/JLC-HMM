@@ -309,7 +309,7 @@ build_oakes_data <- function(simulated_hmm,est_params,settings,
   surv_event <- simulated_hmm$survival$event
   surv_covar <- list(simulated_hmm$age_vec,
                      Vec2Mat(simulated_hmm$surv_covar_sim))
-  log_sweights_vec <- numeric(ncol(act))
+  sweights_vec <- rep(1, ncol(act))
 
   if (!settings$include_light){
     light <- matrix(NA,nrow = nrow(light),ncol = ncol(light))
@@ -323,7 +323,8 @@ build_oakes_data <- function(simulated_hmm,est_params,settings,
   validate_re_prob(re_prob,ncol(act),settings$fit_mix_num)
 
   survival_context <- make_survival_context(surv_time,surv_event,surv_covar,
-                                            re_prob,settings$fit_mix_num)
+                                            re_prob,settings$fit_mix_num,
+                                            sweights_vec = sweights_vec)
 
   bline_vec <- if (is_missing_saved_matrix(bline_vec)) NULL else bline_vec
   cbline_vec <- if (is_missing_saved_matrix(cbline_vec)) NULL else cbline_vec
@@ -332,7 +333,8 @@ build_oakes_data <- function(simulated_hmm,est_params,settings,
     surv_covar_risk_vec <- SurvCovarRiskVec(surv_covar,surv_coef)
     bhaz_vec <- CalcBLHaz(surv_coef,beta_vec,re_prob,
                           surv_covar_risk_vec,surv_event,
-                          surv_time,surv_covar)
+                          surv_time,surv_covar,
+                          sweights_vec = sweights_vec)
     bline_vec <- bhaz_vec[[1]]
     cbline_vec <- bhaz_vec[[2]]
   }
@@ -353,7 +355,7 @@ build_oakes_data <- function(simulated_hmm,est_params,settings,
                         vcovar_mat = vcovar_mat,
                         lod_act = -5.809153,
                         lod_light = -1.560658,
-                        log_sweights_vec = log_sweights_vec,
+                        sweights_vec = sweights_vec,
                         lambda_act_mat = lambda_act_mat,
                         lambda_light_mat = lambda_light_mat,
                         tobit = settings$tobit,
@@ -396,7 +398,8 @@ build_h1 <- function(theta_pack,posterior_context,oakes_params,
     lambda_act_mat = data_context$lambda_act_mat,
     lambda_light_mat = data_context$lambda_light_mat,
     tobit = data_context$tobit,
-    period_len = data_context$period_len)
+    period_len = data_context$period_len,
+    sweights_vec = data_context$sweights_vec)
 
   emit_h1 <- CalcOakesEmissionH1(
     alpha = posterior_context$alpha,
@@ -409,12 +412,15 @@ build_h1 <- function(theta_pack,posterior_context,oakes_params,
     emit_light = oakes_params$emit_light,
     corr_mat = oakes_params$corr_mat,
     lod_act = data_context$lod_act,
-    lod_light = data_context$lod_light)
+    lod_light = data_context$lod_light,
+    sweights_vec = data_context$sweights_vec)
 
   mix_h1 <- CalcOakesMixingH1(
     nu_mat = oakes_params$nu_mat,
     re_prob = posterior_context$re_prob,
-    nu_covar_mat = data_context$nu_covar_mat)
+    nu_covar_mat = data_context$nu_covar_mat,
+    sweights_vec = data_context$sweights_vec
+  )
 
   if (identical(data_context$survival_baseline_mode,"fixed")){
     surv_h1 <- CalcOakesSurvivalH1(

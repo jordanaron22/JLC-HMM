@@ -206,13 +206,14 @@ validate_re_prob <- function(re_prob, expected_n, expected_mix_num){
 }
 
 make_survival_context <- function(surv_time, surv_event, surv_covar, re_prob,
-                                  expected_mix_num){
+                                  expected_mix_num,sweights_vec){
   validate_survival_inputs(surv_time,surv_event,surv_covar)
   validate_re_prob(re_prob,length(surv_time),expected_mix_num)
   list(surv_time = surv_time,
        surv_event = surv_event,
        surv_covar = surv_covar,
-       re_prob = re_prob)
+       re_prob = re_prob,
+       sweights_vec = sweights_vec)
 }
 
 update_survival_context_re_prob <- function(survival_context, re_prob,

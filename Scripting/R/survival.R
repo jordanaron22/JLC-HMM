@@ -7,16 +7,16 @@ SurvCovarRiskVec <- function(surv_covar,surv_coef){
 }
 
 #calculates non-parametric baseline haz using breslow estimator
-CalcBLHaz <- function(surv_coef,beta_vec, re_prob,surv_covar_risk_vec,surv_event,surv_time,surv_covar){
+CalcBLHaz <- function(surv_coef,beta_vec, re_prob,surv_covar_risk_vec,surv_event,surv_time,surv_covar, sweights_vec){
   n <- length(surv_event)
   if (n == 0){
     return(list(numeric(0),numeric(0)))
   }
 
   if (!is.null(dim(re_prob)) && ncol(re_prob) != 1){
-    risk_score <- drop(re_prob %*% exp(beta_vec)) * exp(surv_covar_risk_vec)
+    risk_score <- sweights_vec * drop(re_prob %*% exp(beta_vec)) * exp(surv_covar_risk_vec)
   } else {
-    risk_score <- exp(surv_covar_risk_vec)
+    risk_score <- sweights_vec * exp(surv_covar_risk_vec)
   }
 
   time_factor <- factor(surv_time,levels = sort(unique(surv_time)))
@@ -25,10 +25,21 @@ CalcBLHaz <- function(surv_coef,beta_vec, re_prob,surv_covar_risk_vec,surv_event
   denom_by_time[denom_by_time > .Machine$double.xmax] <-
     .Machine$double.xmax
 
-  bline_vec <- unname(surv_event / denom_by_time[as.integer(time_factor)])
-  bline_by_time <- as.numeric(tapply(bline_vec,time_factor,sum))
+
+  event_weight_by_time <- as.numeric(
+    tapply(surv_event * sweights_vec, time_factor, sum)
+  )
+
+  bline_by_time <- event_weight_by_time / denom_by_time
   cbline_by_time <- cumsum(bline_by_time)
-  cbline_vec <- unname(cbline_by_time[as.integer(time_factor)])
+
+  bline_vec <- unname(
+    bline_by_time[as.integer(time_factor)]
+  )
+
+  cbline_vec <- unname(
+    cbline_by_time[as.integer(time_factor)]
+  )
 
   return(list(bline_vec,cbline_vec))
 }
@@ -39,8 +50,9 @@ SurvLike <- function(beta_vec,surv_covar_risk_vec,surv_coef,survival_context){
   surv_event <- survival_context$surv_event
   surv_time <- survival_context$surv_time
   surv_covar <- survival_context$surv_covar
+  sweights_vec <- survival_context$sweights_vec
   bhaz_vec <- CalcBLHaz(surv_coef,beta_vec,re_prob,surv_covar_risk_vec,
-                        surv_event,surv_time,surv_covar)
+                        surv_event,surv_time,surv_covar,sweights_vec)
   bline_vec <- bhaz_vec[[1]]
   cbline_vec <- bhaz_vec[[2]]
 
@@ -54,11 +66,21 @@ SurvLike <- function(beta_vec,surv_covar_risk_vec,surv_coef,survival_context){
   class_event_lp <- drop(re_prob %*% beta_vec)
   class_risk <- drop(re_prob %*% exp(beta_vec))
 
-  loglike <- sum(
-    log(bline_vec^surv_event) +
-      (class_event_lp + surv_covar_risk_vec) * surv_event -
-      cbline_vec * exp(surv_covar_risk_vec) * class_risk
-  )
+  event_log_bline <- numeric(length(surv_event))
+  event_rows <- surv_event == 1
+  event_log_bline[event_rows] <- log(bline_vec[event_rows])
+
+  loglike_i <-
+    event_log_bline +
+    surv_event * (
+      class_event_lp +
+      surv_covar_risk_vec
+    ) -
+    cbline_vec *
+      exp(surv_covar_risk_vec) *
+      class_risk
+
+  loglike <- sum(sweights_vec * loglike_i)
 
 
   return(-loglike)
@@ -122,6 +144,7 @@ CalcSurvivalScoreInfo <- function(beta_surv_coef,survival_context,
   surv_event <- survival_context$surv_event
   surv_time <- survival_context$surv_time
   surv_covar <- survival_context$surv_covar
+  sweights_vec <- survival_context$sweights_vec
 
   beta_surv_coef_list <- OutofBetaSurvCoef(beta_surv_coef,surv_coef_len,
                                            fit_mix_num)
@@ -202,10 +225,13 @@ CalcSurvivalScoreInfo <- function(beta_surv_coef,survival_context,
   }
 
   for (ind in which(surv_event == 1)){
+    event_weight <- sweights_vec[ind]
+
     risk_set <- surv_time >= surv_time[ind]
     linear_surv_covar_risk <- surv_covar_risk_vec[risk_set]
 
     risk_weight_mat <- re_prob[risk_set,,drop = FALSE] *
+      sweights_vec[risk_set]*
       matrix(exp(linear_surv_covar_risk),nrow = sum(risk_set),
              ncol = fit_mix_num) *
       matrix(exp(beta_vec),nrow = sum(risk_set),ncol = fit_mix_num,
@@ -225,8 +251,8 @@ CalcSurvivalScoreInfo <- function(beta_surv_coef,survival_context,
     ez <- colSums(sweep(z,1,risk_prob,`*`))
     ezz <- crossprod(z,sweep(z,1,risk_prob,`*`))
 
-    grad <- grad + build_event_z(ind) - ez
-    hess <- hess + ezz - tcrossprod(ez)
+    grad <- grad + event_weight * (build_event_z(ind) - ez)
+    hess <- hess + event_weight * (ezz - tcrossprod(ez))
   }
 
   hess <- 0.5 * (hess + t(hess))
@@ -335,7 +361,7 @@ CalcBeta <- function(beta_surv_coef, combined_covar_mat,surv_covar_risk_vec,
   surv_data <- cbind(surv_data,survival_context$re_prob,combined_covar_mat)
   colnames(surv_data)[4] <- "toRem"
 
-  fit <- coxph(Surv(time, status) ~ .  - toRem, data = surv_data)
+  fit <- coxph(Surv(time, status) ~ .  - toRem, data = surv_data, weights = survival_context$sweights_vec, ties = 'breslow')
   beta_surv_coef_new <- fit$coefficients
   se <- sqrt(diag(fit$var))
 
@@ -381,3 +407,130 @@ SubsetSurvCovar <- function(surv_covar,leave_out_inds){
   return(surv_covar)
 }
 
+#need to validate this against calcbetamanual
+#this uses coxph funciton and avoids doing a newton-raphson by hand (probably more accurate)
+CalcBetaCoxphJoint <- function(
+    beta_surv_coef,
+    survival_context,
+    surv_coef_len,
+    fit_mix_num,
+    one_step = FALSE) {
+
+  re_prob <- as.matrix(survival_context$re_prob)
+  surv_time <- survival_context$surv_time
+  surv_event <- survival_context$surv_event
+  sweights_vec <- survival_context$sweights_vec
+
+  n <- length(surv_time)
+
+  if (!all(dim(re_prob) == c(n, fit_mix_num))) {
+    stop("re_prob dimensions do not match the survival data")
+  }
+
+  subject_design <- BuildSurvivalCovariateMatrix(
+    survival_context$surv_covar
+  )
+
+  subject_index <- rep(seq_len(n), each = fit_mix_num)
+  class_index <- rep(seq_len(fit_mix_num), times = n)
+
+  expanded_data <- data.frame(
+    time = surv_time[subject_index],
+    status = surv_event[subject_index],
+    latent_class = factor(
+      class_index,
+      levels = seq_len(fit_mix_num)
+    ),
+    subject_design[subject_index, , drop = FALSE],
+    check.names = FALSE
+  )
+
+  # as.vector(t(re_prob)) gives:
+  # subject 1, classes 1:G; subject 2, classes 1:G; ...
+  expanded_weights <-
+    sweights_vec[subject_index] *
+    as.vector(t(re_prob))
+
+  # Order terms to match IntoBetaSurvCoef():
+  # age, class 2:G, remaining survival covariates
+  other_covariates <- setdiff(
+    colnames(subject_design),
+    "age"
+  )
+
+  formula_terms <- c(
+    "age",
+    "latent_class",
+    other_covariates
+  )
+
+  survival_formula <- reformulate(
+    formula_terms,
+    response = "Surv(time, status)"
+  )
+
+  control <- if (one_step) {
+    coxph.control(iter.max = 1)
+  } else {
+    coxph.control()
+  }
+
+  fit <- coxph(
+    formula = survival_formula,
+    data = expanded_data,
+    weights = expanded_weights,
+    ties = "breslow",
+    init = beta_surv_coef,
+    control = control,
+    robust = FALSE,
+    model = FALSE,
+    x = FALSE,
+    y = FALSE
+  )
+
+  list(
+    beta_surv_coef = unname(coef(fit)),
+    conditional_se = sqrt(diag(vcov(fit))),
+    fit = fit
+  )
+}
+
+BuildSurvivalCovariateMatrix <- function(surv_covar) {
+  age <- matrix(
+    as.numeric(surv_covar[[1]]),
+    ncol = 1,
+    dimnames = list(NULL, "age")
+  )
+
+  other_blocks <- list()
+
+  if (length(surv_covar) > 1) {
+    for (j in 2:length(surv_covar)) {
+      covar_mat <- as.matrix(surv_covar[[j]])
+
+      # First column is the reference category.
+      if (ncol(covar_mat) > 1) {
+        block <- covar_mat[, -1, drop = FALSE]
+
+        block_name <- names(surv_covar)[j]
+        if (is.null(block_name) || is.na(block_name) || block_name == "") {
+          block_name <- paste0("covar", j)
+        }
+
+        colnames(block) <- paste0(
+          make.names(block_name),
+          "_",
+          seq_len(ncol(block))
+        )
+
+        other_blocks[[length(other_blocks) + 1]] <- block
+      }
+    }
+  }
+
+  if (length(other_blocks) == 0) {
+    return(age)
+  }
+
+  cbind(age, do.call(cbind, other_blocks))
+}
