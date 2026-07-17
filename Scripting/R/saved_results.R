@@ -21,6 +21,148 @@ get_saved_param <- function(saved_params, param_name, default = NULL, required =
                           default = default, required = required)
 }
 
+load_to_save_from_path <- function(path, object_name = "to_save"){
+  if (!file.exists(path)){
+    stop(paste("Hot-start file does not exist:",path))
+  }
+
+  if (grepl("\\.rds$",path,ignore.case = TRUE)){
+    return(readRDS(path))
+  }
+
+  load_env <- new.env(parent = emptyenv())
+  loaded_names <- load(path,envir = load_env)
+
+  if (object_name %in% loaded_names){
+    return(get(object_name,envir = load_env))
+  }
+  if (length(loaded_names) == 1){
+    return(get(loaded_names[[1]],envir = load_env))
+  }
+
+  stop(paste("Could not identify",object_name,"in",path,
+             "loaded objects:",paste(loaded_names,collapse = ", ")))
+}
+
+make_hot_start_variables <- function(to_save, fit_mix_num = NULL,
+                                     vcovar_num = NULL,
+                                     source_name = "saved results",
+                                     lambda_act_default = NULL,
+                                     lambda_light_default = NULL,
+                                     assign_true_params = FALSE){
+  validate_saved_results(to_save,required_sections = c("est_params"),
+                         source_name = source_name)
+
+  loaded_est_params <- get_saved_section(to_save,"est_params")
+  loaded_init <- get_saved_param(loaded_est_params,"init")
+  loaded_params_tran_array <- get_saved_param(loaded_est_params,
+                                              "params_tran_array")
+  loaded_emit_act <- get_saved_param(loaded_est_params,"emit_act")
+  loaded_emit_light <- get_saved_param(loaded_est_params,"emit_light")
+  loaded_corr_mat <- get_saved_param(loaded_est_params,"corr_mat")
+  loaded_nu_mat <- get_saved_param(loaded_est_params,"nu_mat")
+  loaded_beta_vec <- get_saved_param(loaded_est_params,"beta_vec")
+  loaded_surv_coef <- get_saved_param(loaded_est_params,"surv_coef")
+  loaded_re_prob <- get_saved_param(loaded_est_params,"re_prob",
+                                    required = FALSE)
+  loaded_lambda_act_mat <- get_saved_param(loaded_est_params,
+                                           "lambda_act_mat",
+                                           default = lambda_act_default,
+                                           required = FALSE)
+  loaded_lambda_light_mat <- get_saved_param(loaded_est_params,
+                                             "lambda_light_mat",
+                                             default = lambda_light_default,
+                                             required = FALSE)
+
+  hot_start_params <- make_start_param_list(
+    init = loaded_init,
+    params_tran_array = loaded_params_tran_array,
+    emit_act = loaded_emit_act,
+    emit_light = loaded_emit_light,
+    corr_mat = loaded_corr_mat,
+    nu_mat = loaded_nu_mat,
+    beta_vec = loaded_beta_vec,
+    surv_coef = loaded_surv_coef,
+    lambda_act_mat = loaded_lambda_act_mat,
+    lambda_light_mat = loaded_lambda_light_mat
+  )
+
+  if (!is.null(fit_mix_num) && !is.null(vcovar_num)){
+    validate_param_list(hot_start_params,fit_mix_num,vcovar_num,
+                        "hot_start_params")
+  }
+
+  hot_start_vars <- list(
+    loaded_est_params = loaded_est_params,
+    loaded_init = loaded_init,
+    loaded_params_tran_array = loaded_params_tran_array,
+    loaded_emit_act = loaded_emit_act,
+    loaded_emit_light = loaded_emit_light,
+    loaded_corr_mat = loaded_corr_mat,
+    loaded_nu_mat = loaded_nu_mat,
+    loaded_beta_vec = loaded_beta_vec,
+    loaded_lambda_act_mat = loaded_lambda_act_mat,
+    loaded_lambda_light_mat = loaded_lambda_light_mat,
+    init_start = loaded_init,
+    params_tran_array_start = loaded_params_tran_array,
+    emit_act_start = loaded_emit_act,
+    emit_light_start = loaded_emit_light,
+    corr_mat_start = loaded_corr_mat,
+    nu_mat_start = loaded_nu_mat,
+    beta_vec_start = loaded_beta_vec,
+    lambda_act_mat_start = loaded_lambda_act_mat,
+    lambda_light_mat_start = loaded_lambda_light_mat,
+    surv_coef_true = loaded_surv_coef,
+    re_prob_true = loaded_re_prob,
+    re_prob = loaded_re_prob,
+    hot_start_params = hot_start_params
+  )
+
+  if (assign_true_params){
+    hot_start_vars <- c(
+      hot_start_vars,
+      list(init_true = loaded_init,
+           params_tran_array_true = loaded_params_tran_array,
+           emit_act_true = loaded_emit_act,
+           emit_light_true = loaded_emit_light,
+           corr_mat_true = loaded_corr_mat,
+           nu_mat_true = loaded_nu_mat,
+           beta_vec_true = loaded_beta_vec,
+           lambda_act_mat_true = loaded_lambda_act_mat,
+           lambda_light_mat_true = loaded_lambda_light_mat)
+    )
+  }
+
+  hot_start_vars
+}
+
+load_hot_start_from_path <- function(path, fit_mix_num = NULL,
+                                     vcovar_num = NULL,
+                                     assign_to = parent.frame(),
+                                     assign_true_params = FALSE,
+                                     lambda_act_default = NULL,
+                                     lambda_light_default = NULL){
+  normalized_path <- normalizePath(path,mustWork = TRUE)
+  to_save <- load_to_save_from_path(normalized_path)
+  hot_start_vars <- make_hot_start_variables(
+    to_save,
+    fit_mix_num = fit_mix_num,
+    vcovar_num = vcovar_num,
+    source_name = normalized_path,
+    lambda_act_default = lambda_act_default,
+    lambda_light_default = lambda_light_default,
+    assign_true_params = assign_true_params
+  )
+  hot_start_vars$hot_start_path <- normalized_path
+  hot_start_vars$hot_start_to_save <- to_save
+
+  if (!is.null(assign_to)){
+    list2env(hot_start_vars,envir = assign_to)
+  }
+
+  invisible(hot_start_vars)
+}
+
 make_true_param_list <- function(init, params_tran_array, emit_act, emit_light,
                                  corr_mat, nu_mat, beta_vec, beta_age,
                                  lambda_act_mat = NULL, lambda_light_mat = NULL){

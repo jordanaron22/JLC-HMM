@@ -32,6 +32,7 @@ library(Matrix)
 library(Hmisc)
 library(survex)
 #library(tidyverse)
+library(pbivnorm)
 
 source_jmhmm_module <- function(module_file){
   candidate_paths <- c(file.path("Scripting","R",module_file),
@@ -405,7 +406,6 @@ validate_param_list(start_params,fit_mix_num,vcovar_num,"start_params")
 
 time_vec <- c()
 pi_l <- CalcPi(nu_mat,nu_covar_mat)
-
 #sets some controls so matrix sizing lines up
 if (!leave_out & !load_data){re_prob <- pi_l}
 if (load_data & !real_data){re_prob <- pi_l}
@@ -430,6 +430,37 @@ if(!incl_act){
   act_old <- matrix(NA,dim(act_old)[1],dim(act_old)[2])
 }
 
+###needed for tobit emission optimization
+vcovar_mat_emit <- vcovar_mat + 1
+emit_data <- PrepareEmitLogLikeData(
+  act = act,
+  light = light,
+  vcovar_mat = vcovar_mat_emit,
+  lod_act = lod_act,
+  lod_light = lod_light
+)
+
+
+
+#######
+#adhoc hot start
+# file_path <- "/projects/standard/mfiecas/aron0064/JLC-HMM/Rcode/Data/JMHMM"
+# if (model_type == "joint"){
+#   file_path <- paste0(file_path,"Mix",fit_mix_num,"Seed.rda")
+# } else{
+#   file_path <- paste0(file_path,"NoSurvMix",fit_mix_num,"Seed.rda")
+# }
+# print(file_path)
+# load_hot_start_from_path(
+#   file_path,
+#   fit_mix_num = fit_mix_num,
+#   vcovar_num = vcovar_num,
+#   assign_to = environment()
+# )
+######
+
+
+
 #calculates baseline hazards
 bhaz_vec <- CalcBLHaz(surv_coef,beta_vec,survival_context$re_prob,
                       surv_covar_risk_vec,survival_context$surv_event,
@@ -442,32 +473,54 @@ lintegral_mat <- CalcLintegralMat(emit_act,emit_light,corr_mat,lod_act,lod_light
 tran_list <- GenTranList(params_tran_array,c(1:day_length),mix_num,vcovar_num,
                          period_len = period_len)
 
-print("Pre Alpha")
-alpha <- Forward(act = act,light = light,
-         init = init,tran_list = tran_list,
-         emit_act = emit_act,emit_light = emit_light,
-         lod_act = lod_act, lod_light = lod_light, 
-         corr_mat = corr_mat, beta_vec = beta_vec, surv_coef = surv_coef,surv_covar_risk_vec = surv_covar_risk_vec,
-         event_vec = surv_event, bline_vec = bline_vec, cbline_vec = cbline_vec,
-         lintegral_mat = lintegral_mat,
-         surv_covar = surv_covar, vcovar_mat = vcovar_mat,
-         lambda_act_mat = lambda_act_mat,lambda_light_mat = lambda_light_mat,
-         tobit = tobit,incl_surv = incl_surv,beta_bool = beta_bool,
-         mix_num = mix_num)
+print("Pre Forward-Backward")
 
-beta <- Backward(act = act,light = light, tran_list = tran_list,
-                 emit_act = emit_act,emit_light = emit_light,
-                  lod_act = lod_act, lod_light =  lod_light, 
-                  corr_mat = corr_mat,lintegral_mat = lintegral_mat,vcovar_mat = vcovar_mat,
-                  lambda_act_mat = lambda_act_mat,lambda_light_mat = lambda_light_mat,
-                  tobit = tobit,mix_num = mix_num,day_length = day_length)
-         
-print("Post Beta")
+fb_result <- ForwardBackward(
+  act = act,
+  light = light,
+  init = init,
+  tran_list = tran_list,
+  emit_act = emit_act,
+  emit_light = emit_light,
+  lod_act = lod_act,
+  lod_light = lod_light,
+  corr_mat = corr_mat,
+  beta_vec = beta_vec,
+  surv_coef = surv_coef,
+  surv_covar_risk_vec =
+    surv_covar_risk_vec,
+  event_vec = surv_event,
+  bline_vec = bline_vec,
+  cbline_vec = cbline_vec,
+  lintegral_mat = lintegral_mat,
+  surv_covar = surv_covar,
+  vcovar_mat = vcovar_mat,
+  lambda_act_mat =
+    lambda_act_mat,
+  lambda_light_mat =
+    lambda_light_mat,
+  tobit = tobit,
+  incl_surv = incl_surv,
+  beta_bool = beta_bool,
+  mix_num = mix_num,
+  vcovar_num = vcovar_num,
+  period_len = period_len
+)
+
+alpha <- fb_result$alpha
+beta <- fb_result$beta
+
+rm(fb_result)
+
+print("Post Forward-Backward")
+
+
+
 new_likelihood <- CalcLikelihood(alpha,pi_l,sweights_vec)
 if (incl_surv == MODEL_TYPE_CODES[["joint"]] & beta_bool == 0){new_likelihood <- new_likelihood - SurvLike(beta_vec,surv_covar_risk_vec,surv_coef,survival_context)}
 likelihood_vec <- c(new_likelihood)
 likelihood <- -Inf
-like_diff <- new_likelihood - likelihood
+like_diff <- new_likelihood 
 #check to make sure all values are the same, simple sanity check
 # apply(alpha[[1]][,,1]+beta[[1]][,,1],1,logSumExp)
 iter_count <- 1
@@ -520,9 +573,13 @@ em_initial_state <- list(
   likelihood = new_likelihood
 )
 
-while((abs(like_diff) > em_control$convergence_tolerance |
+likelihood <- new_likelihood
+maxit <- 10
+
+while((abs(like_diff/likelihood) > em_control$convergence_tolerance |
        iter_count < em_control$minimum_iterations) &
-      !em_control$run_only_survival){
+      !em_control$run_only_survival & 
+      iter_count <= maxit){
   ##### EM iteration: bookkeeping #####
   start_time <- Sys.time()
   likelihood <- new_likelihood
@@ -568,37 +625,175 @@ while((abs(like_diff) > em_control$convergence_tolerance |
   
   ##### E-step: posterior wake/sleep weights #####
   #calculates wake/sleep probabilities, needed for emission dist estimation
-  weights_array_list <- CondMarginalize(alpha,beta,pi_l)
+  ##### E-step: posterior wake/sleep weights #####
+  # Calculates log posterior wake/sleep probabilities.
+  weights_array_list <- CondMarginalize(
+    alpha,
+    beta,
+    pi_l
+  )
 
-  weights_array_wake <- exp(weights_array_list[[1]])
-  weights_array_sleep <- exp(weights_array_list[[2]])
+  # Build each state/class/day-type weighted subset once.
+  emit_case_cache <- BuildEmitCaseCache(
+    log_weights_by_state = weights_array_list,
+    emit_data = emit_data,
+    sweights_vec = sweights_vec,
+    mix_num = dim(emit_act)[3L],
+    vcovar_num = dim(emit_act)[4L]
+  )
+  # The full log-posterior arrays are no longer needed by the
+  # emission updates after the cache has been constructed.
+  rm(weights_array_list)  
 
-  weights_array_wake_emit <- sweep(weights_array_wake, 2, sweights_vec, "*")
-  weights_array_sleep_emit <- sweep(weights_array_sleep, 2, sweights_vec, "*")
+  
   
   ##### M-step: Tobit emission parameters #####
-  if(incl_light){
+  ##### M-step: Tobit emission parameters #####
 
-    emit_light[1,1,,] <- UpdateNorm(CalcLightMean,1,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake_emit,weights_array_sleep_emit,vcovar_mat+1)
-    emit_light[2,1,,] <- UpdateNorm(CalcLightMean,2,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake_emit,weights_array_sleep_emit,vcovar_mat+1)
+  # Update light-distribution parameters.
+  if (incl_light) {
 
-    emit_light[1,2,,] <- UpdateNorm(CalcLightSig,1,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake_emit,weights_array_sleep_emit,vcovar_mat+1)
-    emit_light[2,2,,] <- UpdateNorm(CalcLightSig,2,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake_emit,weights_array_sleep_emit,vcovar_mat+1)
+    # Wake-state light mean
+    emit_light[1, 1, , ] <- UpdateNormByCase(
+      FUN = CalcLightMeanByCase,
+      mc_state = 1,
+      emit_act = emit_act,
+      emit_light = emit_light,
+      corr_mat = corr_mat,
+      lod_act = lod_act,
+      lod_light = lod_light,
+      emit_case_cache = emit_case_cache,
+      emit_data = emit_data
+    )
+
+    # Sleep-state light mean
+    emit_light[2, 1, , ] <- UpdateNormByCase(
+      FUN = CalcLightMeanByCase,
+      mc_state = 2,
+      emit_act = emit_act,
+      emit_light = emit_light,
+      corr_mat = corr_mat,
+      lod_act = lod_act,
+      lod_light = lod_light,
+      emit_case_cache = emit_case_cache,
+      emit_data = emit_data
+    )
+
+    # Wake-state light standard deviation
+    emit_light[1, 2, , ] <- UpdateNormByCase(
+      FUN = CalcLightSigByCase,
+      mc_state = 1,
+      emit_act = emit_act,
+      emit_light = emit_light,
+      corr_mat = corr_mat,
+      lod_act = lod_act,
+      lod_light = lod_light,
+      emit_case_cache = emit_case_cache,
+      emit_data = emit_data
+    )
+
+    # Sleep-state light standard deviation
+    emit_light[2, 2, , ] <- UpdateNormByCase(
+      FUN = CalcLightSigByCase,
+      mc_state = 2,
+      emit_act = emit_act,
+      emit_light = emit_light,
+      corr_mat = corr_mat,
+      lod_act = lod_act,
+      lod_light = lod_light,
+      emit_case_cache = emit_case_cache,
+      emit_data = emit_data
+    )
   }
 
-  if (incl_act){
-    emit_act[1,2,,] <- UpdateNorm(CalcActSig,1,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake_emit,weights_array_sleep_emit,vcovar_mat+1)
-    emit_act[2,2,,] <- UpdateNorm(CalcActSig,2,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake_emit,weights_array_sleep_emit,vcovar_mat+1)
 
-    emit_act[1,1,,] <- UpdateNorm(CalcActMean,1,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake_emit,weights_array_sleep_emit,vcovar_mat+1)
-    emit_act[2,1,,] <- UpdateNorm(CalcActMean,2,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake_emit,weights_array_sleep_emit,vcovar_mat+1)
+  # Update activity-distribution parameters.
+  if (incl_act) {
+
+    # Wake-state activity standard deviation
+    emit_act[1, 2, , ] <- UpdateNormByCase(
+      FUN = CalcActSigByCase,
+      mc_state = 1,
+      emit_act = emit_act,
+      emit_light = emit_light,
+      corr_mat = corr_mat,
+      lod_act = lod_act,
+      lod_light = lod_light,
+      emit_case_cache = emit_case_cache,
+      emit_data = emit_data
+    )
+
+    # Sleep-state activity standard deviation
+    emit_act[2, 2, , ] <- UpdateNormByCase(
+      FUN = CalcActSigByCase,
+      mc_state = 2,
+      emit_act = emit_act,
+      emit_light = emit_light,
+      corr_mat = corr_mat,
+      lod_act = lod_act,
+      lod_light = lod_light,
+      emit_case_cache = emit_case_cache,
+      emit_data = emit_data
+    )
+
+    # Wake-state activity mean
+    emit_act[1, 1, , ] <- UpdateNormByCase(
+      FUN = CalcActMeanByCase,
+      mc_state = 1,
+      emit_act = emit_act,
+      emit_light = emit_light,
+      corr_mat = corr_mat,
+      lod_act = lod_act,
+      lod_light = lod_light,
+      emit_case_cache = emit_case_cache,
+      emit_data = emit_data
+    )
+
+    # Sleep-state activity mean
+    emit_act[2, 1, , ] <- UpdateNormByCase(
+      FUN = CalcActMeanByCase,
+      mc_state = 2,
+      emit_act = emit_act,
+      emit_light = emit_light,
+      corr_mat = corr_mat,
+      lod_act = lod_act,
+      lod_light = lod_light,
+      emit_case_cache = emit_case_cache,
+      emit_data = emit_data
+    )
   }
 
-  if (incl_act & incl_light){
-    corr_mat[,1,] <- UpdateNorm(CalcBivarCorr,1,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake_emit,weights_array_sleep_emit,vcovar_mat+1)
-    corr_mat[,2,] <- UpdateNorm(CalcBivarCorr,2,act,light,emit_act,emit_light,corr_mat,lod_act,lod_light,weights_array_wake_emit,weights_array_sleep_emit,vcovar_mat+1)
 
+  # Correlation is identifiable only when both emissions are included.
+  if (incl_act && incl_light) {
+
+    # Wake-state activity-light correlation
+    corr_mat[, 1, ] <- UpdateNormByCase(
+      FUN = CalcBivarCorrByCase,
+      mc_state = 1,
+      emit_act = emit_act,
+      emit_light = emit_light,
+      corr_mat = corr_mat,
+      lod_act = lod_act,
+      lod_light = lod_light,
+      emit_case_cache = emit_case_cache,
+      emit_data = emit_data
+    )
+
+    # Sleep-state activity-light correlation
+    corr_mat[, 2, ] <- UpdateNormByCase(
+      FUN = CalcBivarCorrByCase,
+      mc_state = 2,
+      emit_act = emit_act,
+      emit_light = emit_light,
+      corr_mat = corr_mat,
+      lod_act = lod_act,
+      lod_light = lod_light,
+      emit_case_cache = emit_case_cache,
+      emit_data = emit_data
+    )
   }
+
   
   ##### M-step: initial-state probabilities #####
   #this only relies on normal parameters so calculate it now
@@ -609,13 +804,28 @@ while((abs(like_diff) > em_control$convergence_tolerance |
   #saves old transition values in case likelihood decrease
   params_tran_array_old <- params_tran_array
   #gradient and hessian for tran parameters
-  tran_gradhess_list <- CalcTranCHelper(alpha,beta,act,light,params_tran_array,
+  #Old approach
+  # tran_gradhess_list <- CalcTranCHelper(alpha,beta,act,light,params_tran_array,
+  #                                       emit_act,emit_light,corr_mat,
+  #                                       pi_l,lod_act,lod_light,lintegral_mat,vcovar_mat,
+  #                                       lambda_act_mat, lambda_light_mat, tobit,
+  #                                       em_control$check_transition_update,likelihood,
+  #                                       period_len = period_len, sweights_vec = sweights_vec,
+  #                                       vcovar_num = vcovar_num)
+
+
+
+  #AI improved approach
+  #validated against old approach
+  #260ish to <20 seconds
+  tran_gradhess_list <- CalcTranCHelperFast(alpha,beta,act,light,params_tran_array,
                                         emit_act,emit_light,corr_mat,
                                         pi_l,lod_act,lod_light,lintegral_mat,vcovar_mat,
                                         lambda_act_mat, lambda_light_mat, tobit,
                                         em_control$check_transition_update,likelihood,
                                         period_len = period_len, sweights_vec = sweights_vec,
                                         vcovar_num = vcovar_num)
+  
 
   tran_check_context <- list(day_length = em_inputs$dimensions$day_length,
                              period_len = em_inputs$dimensions$period_len,
@@ -655,17 +865,42 @@ while((abs(like_diff) > em_control$convergence_tolerance |
                            period_len = period_len)
 
   ##### Likelihood refresh and transition rollback check #####
-  alpha <- Forward(act = act,light = light,
-                   init = init,tran_list = tran_list,
-                   emit_act= emit_act,emit_light = emit_light,
-                   lod_act = lod_act, lod_light = lod_light,
-                   corr_mat = corr_mat, beta_vec = beta_vec, surv_coef = surv_coef,surv_covar_risk_vec = surv_covar_risk_vec,
-                   event_vec = surv_event, bline_vec = bline_vec, cbline_vec = cbline_vec,
-                   lintegral_mat = lintegral_mat,
-                   surv_covar = surv_covar, vcovar_mat = vcovar_mat,
-                   lambda_act_mat = lambda_act_mat,lambda_light_mat = lambda_light_mat,
-                   tobit = tobit,incl_surv = incl_surv*beta_bool,
-                   beta_bool = beta_bool,mix_num = mix_num)
+  fb_result <- ForwardBackward(
+    act = act,
+    light = light,
+    init = init,
+    tran_list = tran_list,
+    emit_act = emit_act,
+    emit_light = emit_light,
+    lod_act = lod_act,
+    lod_light = lod_light,
+    corr_mat = corr_mat,
+    beta_vec = beta_vec,
+    surv_coef = surv_coef,
+    surv_covar_risk_vec =
+      surv_covar_risk_vec,
+    event_vec = surv_event,
+    bline_vec = bline_vec,
+    cbline_vec = cbline_vec,
+    lintegral_mat = lintegral_mat,
+    surv_covar = surv_covar,
+    vcovar_mat = vcovar_mat,
+    lambda_act_mat =
+      lambda_act_mat,
+    lambda_light_mat =
+      lambda_light_mat,
+    tobit = tobit,
+    incl_surv = incl_surv,
+    beta_bool = beta_bool,
+    mix_num = mix_num,
+    vcovar_num = vcovar_num,
+    period_len = period_len
+  )
+
+  alpha <- fb_result$alpha
+  beta <- fb_result$beta
+
+  rm(fb_result)
   
   new_likelihood <- CalcLikelihood(alpha,pi_l,sweights_vec)
   
@@ -687,24 +922,49 @@ while((abs(like_diff) > em_control$convergence_tolerance |
     tran_list <- GenTranList(params_tran_array,c(1:day_length),mix_num,vcovar_num,
                              period_len = period_len)
 
-    alpha <- Forward(act = act,light = light,
-                     init = init,tran_list = tran_list,
-                     emit_act = emit_act,emit_light= emit_light,
-                     lod_act = lod_act, lod_light = lod_light,
-                     corr_mat = corr_mat, beta_vec = beta_vec, surv_coef = surv_coef, surv_covar_risk_vec = surv_covar_risk_vec,
-                     event_vec = surv_event, bline_vec = bline_vec, cbline_vec = cbline_vec,
-                     lintegral_mat = lintegral_mat,
-                     surv_covar = surv_covar, vcovar_mat = vcovar_mat,
-                     lambda_act_mat = lambda_act_mat,lambda_light_mat = lambda_light_mat,
-                     tobit = tobit,incl_surv = incl_surv,
-                     beta_bool = beta_bool,mix_num = mix_num)
+    fb_result <- ForwardBackward(
+      act = act,
+      light = light,
+      init = init,
+      tran_list = tran_list,
+      emit_act = emit_act,
+      emit_light = emit_light,
+      lod_act = lod_act,
+      lod_light = lod_light,
+      corr_mat = corr_mat,
+      beta_vec = beta_vec,
+      surv_coef = surv_coef,
+      surv_covar_risk_vec =
+        surv_covar_risk_vec,
+      event_vec = surv_event,
+      bline_vec = bline_vec,
+      cbline_vec = cbline_vec,
+      lintegral_mat = lintegral_mat,
+      surv_covar = surv_covar,
+      vcovar_mat = vcovar_mat,
+      lambda_act_mat =
+        lambda_act_mat,
+      lambda_light_mat =
+        lambda_light_mat,
+      tobit = tobit,
+      incl_surv = incl_surv,
+      beta_bool = beta_bool,
+      mix_num = mix_num,
+      vcovar_num = vcovar_num,
+      period_len = period_len
+    )
+
+    alpha <- fb_result$alpha
+    beta <- fb_result$beta
+
+    rm(fb_result)
 
     new_likelihood <- CalcLikelihood(alpha,pi_l,sweights_vec)
     if (incl_surv == MODEL_TYPE_CODES[["joint"]] & beta_bool == 0){new_likelihood <- new_likelihood - SurvLike(beta_vec,surv_covar_risk_vec,surv_coef,survival_context)}
     like_diff <- new_likelihood - likelihood
   }
   
-  print(paste("RE num:",mix_num,"Like:",round(like_diff,6)))
+  print(paste("RE num:",mix_num,"Like:",round(abs(like_diff/likelihood),10)))
   likelihood_vec <- c(likelihood_vec,new_likelihood)
   
   end_time <- Sys.time()
@@ -870,34 +1130,48 @@ while((abs(like_diff) > em_control$convergence_tolerance |
                                period_len = period_len)
       lintegral_mat <- CalcLintegralMat(emit_act,emit_light,corr_mat,lod_act,lod_light)
       
-      alpha <- Forward(act = act,light = light,
-                       init = init,tran_list = tran_list,
-                       emit_act= emit_act,emit_light = emit_light,
-                       lod_act = lod_act, lod_light = lod_light, 
-                       corr_mat = corr_mat, beta_vec = beta_vec, surv_coef = surv_coef,surv_covar_risk_vec = surv_covar_risk_vec,
-                       event_vec = surv_event, bline_vec = bline_vec, cbline_vec = cbline_vec,
-                       lintegral_mat = lintegral_mat,
-                       surv_covar = surv_covar, vcovar_mat = vcovar_mat,
-                       lambda_act_mat = lambda_act_mat,lambda_light_mat = lambda_light_mat,
-                       tobit = tobit,incl_surv = incl_surv*beta_bool,
-                       beta_bool = beta_bool,mix_num = mix_num)
+      fb_result <- ForwardBackward(
+        act = act,
+        light = light,
+        init = init,
+        tran_list = tran_list,
+        emit_act = emit_act,
+        emit_light = emit_light,
+        lod_act = lod_act,
+        lod_light = lod_light,
+        corr_mat = corr_mat,
+        beta_vec = beta_vec,
+        surv_coef = surv_coef,
+        surv_covar_risk_vec =
+          surv_covar_risk_vec,
+        event_vec = surv_event,
+        bline_vec = bline_vec,
+        cbline_vec = cbline_vec,
+        lintegral_mat = lintegral_mat,
+        surv_covar = surv_covar,
+        vcovar_mat = vcovar_mat,
+        lambda_act_mat =
+          lambda_act_mat,
+        lambda_light_mat =
+          lambda_light_mat,
+        tobit = tobit,
+        incl_surv = incl_surv,
+        beta_bool = beta_bool,
+        mix_num = mix_num,
+        vcovar_num = vcovar_num,
+        period_len = period_len
+      )
+
+      alpha <- fb_result$alpha
+      beta <- fb_result$beta
+
+      rm(fb_result)
       
       new_likelihood <- CalcLikelihood(alpha,pi_l,sweights_vec)
       like_diff <- em_control$convergence_tolerance * 1.1
     }
       
   }
-  
-  
-  ##### E-step: refresh backward probabilities #####
-  #Finally calls beta at very end of while loop
-  beta <- Backward(act = act,light = light, tran_list = tran_list,
-                   emit_act = emit_act,emit_light = emit_light,
-                   lod_act = lod_act, lod_light =  lod_light, 
-                   corr_mat = corr_mat,lintegral_mat = lintegral_mat,vcovar_mat = vcovar_mat,
-                   lambda_act_mat = lambda_act_mat,lambda_light_mat = lambda_light_mat,
-                   tobit = tobit,mix_num = mix_num,day_length = day_length)
-  
 } # end EM loop
 
 ######
@@ -1370,4 +1644,6 @@ to_save <- make_saved_results(true_params = true_params,
 output_dir <- if (dir.exists("Routputs")){"Routputs"} else {"."}
 # model_name <- paste0("ReRun",model_name)
 save(to_save,file = file.path(output_dir,model_name))
+
+
 

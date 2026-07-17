@@ -295,3 +295,133 @@ Backward <- function(act, light, tran_list,
   }
   return(beta_list)
 }
+
+#combines them so only need to run one scalar classification
+ForwardBackward <- function(
+    act,
+    light,
+    init,
+    tran_list,
+    emit_act,
+    emit_light,
+    lod_act,
+    lod_light,
+    corr_mat,
+    beta_vec,
+    surv_coef,
+    surv_covar_risk_vec,
+    event_vec,
+    bline_vec,
+    cbline_vec,
+    lintegral_mat,
+    surv_covar,
+    vcovar_mat,
+    lambda_act_mat,
+    lambda_light_mat,
+    tobit,
+    incl_surv,
+    beta_bool,
+    mix_num = dim(emit_act)[3L],
+    vcovar_num = dim(emit_act)[4L],
+    period_len = 96L
+) {
+  vcovar_num <-
+    as.integer(vcovar_num)
+
+  period_len <-
+    as.integer(period_len)
+
+  if (
+    vcovar_num < 1L ||
+    vcovar_num > 2L
+  ) {
+    stop(
+      "ForwardBackward supports one or two day types"
+    )
+  }
+
+  emit_act_week <- array(
+    emit_act[, , , 1L],
+    dim = c(2L, 2L, mix_num)
+  )
+
+  emit_light_week <- array(
+    emit_light[, , , 1L],
+    dim = c(2L, 2L, mix_num)
+  )
+
+  if (vcovar_num == 2L) {
+    emit_act_weekend <- array(
+      emit_act[, , , 2L],
+      dim = c(2L, 2L, mix_num)
+    )
+
+    emit_light_weekend <- array(
+      emit_light[, , , 2L],
+      dim = c(2L, 2L, mix_num)
+    )
+  } else {
+    emit_act_weekend <-
+      emit_act_week
+
+    emit_light_weekend <-
+      emit_light_week
+  }
+
+  if (
+    incl_surv ==
+      MODEL_TYPE_CODES[["two_stage"]]
+  ) {
+    adjusted_incl_surv <- FALSE
+  } else {
+    adjusted_incl_surv <- TRUE
+  }
+
+  use_survival <-
+    adjusted_incl_surv &&
+    isTRUE(as.logical(beta_bool))
+
+  result <- ForwardBackwardC(
+    act = act,
+    light = light,
+    init = init,
+    tran_list = tran_list,
+    emit_act_week = emit_act_week,
+    emit_light_week = emit_light_week,
+    emit_act_weekend =
+      emit_act_weekend,
+    emit_light_weekend =
+      emit_light_weekend,
+    lod_act = lod_act,
+    lod_light = lod_light,
+    corr_mat = corr_mat,
+    beta_vec = beta_vec,
+    surv_covar_risk_vec =
+      surv_covar_risk_vec,
+    event_vec = event_vec,
+    bline_vec = bline_vec,
+    cbline_vec = cbline_vec,
+    lintegral_mat =
+      lintegral_mat,
+    vcovar_mat = vcovar_mat,
+    lambda_act_mat =
+      lambda_act_mat,
+    lambda_light_mat =
+      lambda_light_mat,
+    tobit = tobit,
+    incl_surv = use_survival,
+    vcovar_num = vcovar_num,
+    period_len = period_len
+  )
+
+  if (
+    is.null(result$alpha) ||
+    is.null(result$beta)
+  ) {
+    stop(
+      "ForwardBackwardC did not return alpha and beta"
+    )
+  }
+
+  result
+}

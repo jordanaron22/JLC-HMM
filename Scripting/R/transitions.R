@@ -522,3 +522,124 @@ CalcNu <- function(nu_mat,re_prob,nu_covar_mat,alpha,sweights_vec,
 
   return(nu_mat_new)
 }
+
+CalcTranCHelperFast <- function(
+  alpha,
+  beta,
+  act,
+  light,
+  params_tran_array,
+  emit_act,
+  emit_light,
+  corr_mat,
+  pi_l,
+  lod_act,
+  lod_light,
+  lintegral_mat,
+  vcovar_mat,
+  lambda_act_mat,
+  lambda_light_mat,
+  tobit,
+  check_tran,
+  likelihood,
+  period_len,
+  sweights_vec,
+  vcovar_num = dim(params_tran_array)[3]
+) {
+  len <- nrow(act)
+  mix_num <- dim(emit_act)[3]
+
+  if (nrow(vcovar_mat) != len ||
+      ncol(vcovar_mat) != ncol(act)) {
+    stop(
+      paste(
+        "vcovar_mat must have the same",
+        "dimensions as act"
+      )
+    )
+  }
+
+  if (length(sweights_vec) != ncol(act)) {
+    stop(
+      "sweights_vec must contain one value per participant"
+    )
+  }
+
+  if (vcovar_num < 1L || vcovar_num > 2L) {
+    stop(
+      paste(
+        "CalcTranCHelperFast currently supports",
+        "one or two transition day types"
+      )
+    )
+  }
+
+  tran_list_mat <- GenTranColVecList(
+    params_tran_array = params_tran_array,
+    len = len,
+    mix_num = mix_num,
+    vcovar_num = vcovar_num,
+    period_len = period_len
+  )
+
+  ind_like_vec <- vapply(
+    seq_along(alpha),
+    FUN = IndLike,
+    FUN.VALUE = numeric(1),
+    alpha = alpha,
+    pi_l = pi_l,
+    len = len
+  )
+
+  emit_act_week <- array(
+    emit_act[, , , 1L],
+    dim = c(2L, 2L, mix_num)
+  )
+
+  emit_light_week <- array(
+    emit_light[, , , 1L],
+    dim = c(2L, 2L, mix_num)
+  )
+
+  if (vcovar_num == 2L) {
+    emit_act_weekend <- array(
+      emit_act[, , , 2L],
+      dim = c(2L, 2L, mix_num)
+    )
+
+    emit_light_weekend <- array(
+      emit_light[, , , 2L],
+      dim = c(2L, 2L, mix_num)
+    )
+  } else {
+    # The second cubes are not accessed when vcovar_num == 1,
+    # but valid objects are still required by the C++ signature.
+    emit_act_weekend <- emit_act_week
+    emit_light_weekend <- emit_light_week
+  }
+
+  CalcTranGradHessFastC(
+    act = act,
+    light = light,
+    tran_list_mat = tran_list_mat,
+    emit_act_week = emit_act_week,
+    emit_light_week = emit_light_week,
+    emit_act_weekend = emit_act_weekend,
+    emit_light_weekend = emit_light_weekend,
+    ind_like_vec = ind_like_vec,
+    alpha = alpha,
+    beta = beta,
+    lod_act = lod_act,
+    lod_light = lod_light,
+    corr_mat = corr_mat,
+    lintegral_mat = lintegral_mat,
+    pi_l = pi_l,
+    vcovar_mat = vcovar_mat,
+    sweights_vec = sweights_vec,
+    lambda_act_mat = lambda_act_mat,
+    lambda_light_mat = lambda_light_mat,
+    tobit = tobit,
+    vcovar_num = vcovar_num,
+    period_len = period_len
+  )
+}
