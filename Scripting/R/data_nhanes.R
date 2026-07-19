@@ -25,6 +25,176 @@ make_nhanes_survival_covariates <- function(id){
        physical_function = Vec2Mat(id$phyfunc+1))
 }
 
+assign_indices_to_folds <- function(indices,fold_count){
+  if (length(indices) == 0){
+    return(data.frame(subject_index = integer(),fold_id = integer()))
+  }
+
+  shuffled_indices <- indices[sample.int(length(indices))]
+  data.frame(
+    subject_index = shuffled_indices,
+    fold_id = rep(seq_len(fold_count),length.out = length(shuffled_indices))
+  )
+}
+
+ValidateNHANESCVFolds <- function(cv_folds,fold_count,interval_breaks){
+  required_cols <- c("subject_index","fold_id","surv_event",
+                     "event_interval_index")
+  missing_cols <- setdiff(required_cols,names(cv_folds))
+  if (length(missing_cols) > 0){
+    stop("cv_folds is missing required columns: ",
+         paste(missing_cols,collapse = ", "))
+  }
+
+  if (!all(seq_len(fold_count) %in% cv_folds$fold_id)){
+    stop("Every NHANES CV fold must contain at least one participant")
+  }
+
+  event_interval_levels <- seq_len(length(interval_breaks) - 1L)
+  training_event_counts <- sapply(seq_len(fold_count),function(current_fold){
+    training_rows <- cv_folds$fold_id != current_fold
+    tabulate(
+      cv_folds$event_interval_index[
+        training_rows & cv_folds$surv_event == 1
+      ],
+      nbins = length(event_interval_levels)
+    )
+  })
+
+  rownames(training_event_counts) <- paste0(
+    interval_breaks[-length(interval_breaks)],"-",
+    interval_breaks[-1]
+  )
+  colnames(training_event_counts) <- paste0("fold_",seq_len(fold_count))
+
+  if (any(training_event_counts <= 0)){
+    failing_positions <- which(training_event_counts <= 0,arr.ind = TRUE)
+    failing_labels <- paste0(
+      rownames(training_event_counts)[failing_positions[,1]],
+      " in ",
+      colnames(training_event_counts)[failing_positions[,2]]
+    )
+    stop(
+      paste0(
+        "Cannot create NHANES CV folds: at least one training fold ",
+        "has no death in interval(s): ",
+        paste(failing_labels,collapse = ", ")
+      )
+    )
+  }
+
+  invisible(training_event_counts)
+}
+
+MakeNHANESCVFolds <- function(surv_time,
+                              surv_event,
+                              fold_count = NHANES_CV_FOLD_COUNT,
+                              interval_breaks = CV_SURVIVAL_INTERVAL_BREAKS,
+                              seed = NHANES_CV_FOLD_SEED){
+  num_people <- length(surv_time)
+
+  if (length(surv_event) != num_people){
+    stop("surv_time and surv_event must have equal lengths")
+  }
+  if (length(fold_count) != 1 ||
+      is.na(fold_count) ||
+      fold_count != floor(fold_count) ||
+      fold_count < 2){
+    stop("fold_count must be an integer >= 2")
+  }
+  if (any(!surv_event %in% c(0,1))){
+    stop("surv_event must contain only 0 and 1")
+  }
+  if (length(interval_breaks) < 2 ||
+      any(!is.finite(interval_breaks)) ||
+      any(diff(interval_breaks) <= 0)){
+    stop("interval_breaks must be a strictly increasing finite vector")
+  }
+
+  event_indicator <- surv_event == 1
+  event_interval_index <- rep(NA_integer_,num_people)
+  event_interval_index[event_indicator] <- cut(
+    surv_time[event_indicator],
+    breaks = interval_breaks,
+    include.lowest = TRUE,
+    right = TRUE,
+    labels = FALSE
+  )
+
+  if (anyNA(event_interval_index[event_indicator])){
+    stop("Every observed death must fall within CV_SURVIVAL_INTERVAL_BREAKS")
+  }
+
+  event_interval_counts <- tabulate(
+    event_interval_index[event_indicator],
+    nbins = length(interval_breaks) - 1L
+  )
+  if (any(event_interval_counts < 2)){
+    interval_labels <- paste0(
+      interval_breaks[-length(interval_breaks)],"-",
+      interval_breaks[-1],
+      ": ",
+      event_interval_counts
+    )
+    stop(
+      paste0(
+        "Cannot create NHANES CV folds with at least one training death ",
+        "per interval. Each interval needs at least two deaths; counts are ",
+        paste(interval_labels,collapse = ", "),
+        "."
+      )
+    )
+  }
+
+  old_seed <- if (exists(".Random.seed",envir = .GlobalEnv,
+                         inherits = FALSE)){
+    get(".Random.seed",envir = .GlobalEnv,inherits = FALSE)
+  } else {
+    NULL
+  }
+  on.exit({
+    if (is.null(old_seed)){
+      if (exists(".Random.seed",envir = .GlobalEnv,inherits = FALSE)){
+        rm(".Random.seed",envir = .GlobalEnv)
+      }
+    } else {
+      assign(".Random.seed",old_seed,envir = .GlobalEnv)
+    }
+  },add = TRUE)
+  set.seed(seed)
+
+  fold_id <- integer(num_people)
+  for (current_interval in seq_len(length(interval_breaks) - 1L)){
+    interval_indices <- which(
+      event_indicator & event_interval_index == current_interval
+    )
+    interval_assignment <- assign_indices_to_folds(
+      interval_indices,fold_count
+    )
+    fold_id[interval_assignment$subject_index] <-
+      interval_assignment$fold_id
+  }
+
+  censored_indices <- which(!event_indicator)
+  censored_assignment <- assign_indices_to_folds(censored_indices,fold_count)
+  fold_id[censored_assignment$subject_index] <- censored_assignment$fold_id
+
+  if (any(fold_id == 0)){
+    stop("Internal error: at least one participant was not assigned a fold")
+  }
+
+  cv_folds <- data.frame(
+    subject_index = seq_len(num_people),
+    fold_id = fold_id,
+    surv_time = surv_time,
+    surv_event = surv_event,
+    event_interval_index = event_interval_index
+  )
+
+  ValidateNHANESCVFolds(cv_folds,fold_count,interval_breaks)
+  cv_folds
+}
+
 prepare_nhanes_data <- function(period_len,bootstrap,leave_out,sim_num,
                                 single_day,weekend_only,load_data,
                                 surv_coef_true = NULL,data_dir = "Data"){
@@ -117,14 +287,36 @@ prepare_nhanes_data <- function(period_len,bootstrap,leave_out,sim_num,
 
   leave_out_data <- list()
   if (leave_out){
-    leave_out_env <- load_rda_into_env(file.path(data_dir,"LeaveOutMat.rda"))
-    if (!exists("leave_out_mat",envir = leave_out_env,inherits = FALSE)){
-      stop("LeaveOutMat.rda does not contain leave_out_mat")
+    cv_fold_count <- NHANES_CV_FOLD_COUNT
+    cv_fold_id <- as.integer(sim_num)
+    if (is.na(cv_fold_id) ||
+        cv_fold_id < 1 ||
+        cv_fold_id > cv_fold_count){
+      stop(
+        paste0(
+          "For NHANES CV, sim_num is the fold_id and must be between 1 and ",
+          cv_fold_count,
+          "; got ",
+          sim_num
+        )
+      )
     }
 
-    leave_out_mat <- get("leave_out_mat",envir = leave_out_env)
-    leave_out_inds <- leave_out_mat[sim_num,]
-    leave_out_inds <- leave_out_inds[!is.na(leave_out_inds)]
+    cv_folds <- MakeNHANESCVFolds(
+      surv_time = surv_time,
+      surv_event = surv_event,
+      fold_count = cv_fold_count,
+      interval_breaks = CV_SURVIVAL_INTERVAL_BREAKS,
+      seed = NHANES_CV_FOLD_SEED
+    )
+    cv_training_event_counts <- ValidateNHANESCVFolds(
+      cv_folds = cv_folds,
+      fold_count = cv_fold_count,
+      interval_breaks = CV_SURVIVAL_INTERVAL_BREAKS
+    )
+    leave_out_inds <- cv_folds$subject_index[
+      cv_folds$fold_id == cv_fold_id
+    ]
 
     id_old <- id
     surv_event_old <- surv_event
@@ -142,13 +334,18 @@ prepare_nhanes_data <- function(period_len,bootstrap,leave_out,sim_num,
 
     act <- act[,-leave_out_inds,drop = FALSE]
     light <- light[,-leave_out_inds,drop = FALSE]
-    id <- id[-leave_out_inds,]
+    id <- id[-leave_out_inds,,drop = FALSE]
     surv_event <- surv_event[-leave_out_inds]
     surv_time <- surv_time[-leave_out_inds]
     sweights_vec <- id$sweights/NHANES_NUM_WAVES
     sweights_vec <- sweights_vec/mean(sweights_vec)
 
     leave_out_data <- list(leave_out_inds = leave_out_inds,
+                           cv_fold_id = cv_fold_id,
+                           cv_fold_count = cv_fold_count,
+                           cv_folds = cv_folds,
+                           cv_training_event_counts =
+                             cv_training_event_counts,
                            id_old = id_old,
                            surv_event_old = surv_event_old,
                            surv_time_old = surv_time_old,

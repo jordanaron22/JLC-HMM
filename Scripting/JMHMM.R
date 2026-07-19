@@ -64,6 +64,7 @@ sim_num <- settings$sim_num
 
 # Compatibility aliases: most of the legacy script still reads these names.
 list2env(settings, envir = environment())
+output_dir <- if (dir.exists("Routputs")){"Routputs"} else {"."}
 
 print("Command line arguments:")
 print(cli_args)
@@ -288,71 +289,66 @@ if (real_data) {
 }
 
 ###### Initial Settings ###### 
-
 ##########
 #if doing cv, load in full data values for hot start
 if (leave_out){
-  
+
   model_name_loadin <- "JMHMM"
   if (incl_surv == MODEL_TYPE_CODES[["two_stage"]]){model_name_loadin <- paste0(model_name_loadin,"NoSurv")}
   legacy_model_name_loadin <- paste0(model_name_loadin,"Mix",fit_mix_num,"Seed",".rda")
   model_name_loadin <- paste0(model_name_loadin,"FitMix",fit_mix_num,"Seed",".rda")
 
-  print(paste("Loading",model_name_loadin))
-  setwd("Data")
-  if (!file.exists(model_name_loadin)){
-    model_name_loadin <- legacy_model_name_loadin
-    print(paste("Loading legacy",model_name_loadin))
+  full_data_file <- file.path("Data",model_name_loadin)
+  if (!file.exists(full_data_file)){
+    full_data_file <- file.path("Data",legacy_model_name_loadin)
+    print(paste("Loading legacy",legacy_model_name_loadin))
   }
-  load(model_name_loadin)
-  setwd("..")
+  if (!file.exists(full_data_file)){
+    stop(paste("Could not find full-data reference file for CV:",
+               full_data_file))
+  }
+  print(paste("Loading",full_data_file))
+  load(full_data_file)
+  full_data_to_save <- to_save
   validate_saved_results(to_save,required_sections = c("est_params"),
-                         source_name = model_name_loadin)
+                         source_name = full_data_file)
   full_data_est_params <- get_saved_section(to_save,"est_params")
   full_data_re_prob <- get_saved_param(full_data_est_params,"re_prob")
   mix_assignment_true <- apply(full_data_re_prob,1,which.max)
-  post_decode_collapsed_true <- get_saved_param(full_data_est_params,"post_decode")[,leave_out_inds]
-  
-  
-  # used if loading non-standard data
-  model_name_loadin <- "JMHMMLeaveOut"
-  if (incl_surv == MODEL_TYPE_CODES[["joint"]]){
-    # foldername <- paste0("LO",mix_num)
+  full_data_post_decode <- get_saved_param(
+    full_data_est_params,
+    "post_decode",
+    required = FALSE
+  )
+  state_reference_available <-
+    !is.null(full_data_post_decode) &&
+    length(dim(full_data_post_decode)) == 2 &&
+    ncol(full_data_post_decode) >= max(leave_out_inds)
+  post_decode_collapsed_true <- NULL
+  if (state_reference_available){
+    post_decode_collapsed_true <-
+      full_data_post_decode[,leave_out_inds,drop = FALSE]
   } else {
-    model_name_loadin <- paste0(model_name_loadin,"NoSurv")
-    # foldername <- paste0("LONS",mix_num)
+    warning(
+      paste(
+        "Full-data post_decode is unavailable or reduced.",
+        "Skipping held-out state sensitivity/specificity diagnostics."
+      )
+    )
   }
-  legacy_model_name_loadin <- paste0(model_name_loadin,"Mix",fit_mix_num,"Seed",sim_num,"len96.rda")
-  model_name_loadin <- paste0(model_name_loadin,"FitMix",fit_mix_num,"Seed",sim_num,"len96.rda")
 
-  print(paste("Loading",model_name_loadin))
-  setwd("LO")
-  setwd(paste0(mix_num))
-  if (!file.exists(model_name_loadin)){
-    model_name_loadin <- legacy_model_name_loadin
-    print(paste("Loading legacy",model_name_loadin))
+  if (load_data){
+    full_data_hot_start <- make_hot_start_variables(
+      full_data_to_save,
+      fit_mix_num = fit_mix_num,
+      vcovar_num = vcovar_num,
+      source_name = full_data_file,
+      lambda_act_default = lambda_act_mat_start,
+      lambda_light_default = lambda_light_mat_start
+    )
+    list2env(full_data_hot_start,envir = environment())
+    pi_l_true <- CalcPi(nu_mat_start,nu_covar_mat)
   }
-  load(model_name_loadin)
-  setwd("..")
-  setwd("..")
-  validate_saved_results(to_save,required_sections = c("est_params"),
-                         source_name = model_name_loadin)
-
-
-  leave_out_est_params <- get_saved_section(to_save,"est_params")
-  init_start <- get_saved_param(leave_out_est_params,"init")
-  params_tran_array_start <- get_saved_param(leave_out_est_params,"params_tran_array")
-  emit_act_start <- get_saved_param(leave_out_est_params,"emit_act")
-  emit_light_start <- get_saved_param(leave_out_est_params,"emit_light")
-  corr_mat_start <- get_saved_param(leave_out_est_params,"corr_mat")
-  nu_mat_start <- get_saved_param(leave_out_est_params,"nu_mat")
-  pi_l_true <- CalcPi(nu_mat_start,nu_covar_mat)
-  beta_vec_start <- get_saved_param(leave_out_est_params,"beta_vec")
-  surv_coef_true <- get_saved_param(leave_out_est_params,"surv_coef")
-  re_prob <- get_saved_param(leave_out_est_params,"re_prob")
-
-  lambda_act_mat_start <- get_saved_param(leave_out_est_params,"lambda_act_mat")
-  lambda_light_mat_start <- get_saved_param(leave_out_est_params,"lambda_light_mat")
   
 }
 
@@ -411,6 +407,7 @@ if (!leave_out & !load_data){re_prob <- pi_l}
 if (load_data & !real_data){re_prob <- pi_l}
 if (load_data & period_len != 96){re_prob <- pi_l}
 if (!is.null(dim(re_prob)) && ncol(re_prob) != fit_mix_num){re_prob <- pi_l}
+if (!is.null(dim(re_prob)) && nrow(re_prob) != nrow(pi_l)){re_prob <- pi_l}
 if (is.null(dim(re_prob))){re_prob <- matrix(re_prob,ncol = 1)}
 
 validate_hmm_data(act,light,vcovar_mat)
@@ -440,24 +437,6 @@ emit_data <- PrepareEmitLogLikeData(
   lod_light = lod_light
 )
 
-
-
-#######
-#adhoc hot start
-# file_path <- "/projects/standard/mfiecas/aron0064/JLC-HMM/Rcode/Data/JMHMM"
-# if (model_type == "joint"){
-#   file_path <- paste0(file_path,"Mix",fit_mix_num,"Seed.rda")
-# } else{
-#   file_path <- paste0(file_path,"NoSurvMix",fit_mix_num,"Seed.rda")
-# }
-# print(file_path)
-# load_hot_start_from_path(
-#   file_path,
-#   fit_mix_num = fit_mix_num,
-#   vcovar_num = vcovar_num,
-#   assign_to = environment()
-# )
-######
 
 
 
@@ -574,12 +553,9 @@ em_initial_state <- list(
 )
 
 likelihood <- new_likelihood
-maxit <- 10
-
 while((abs(like_diff/likelihood) > em_control$convergence_tolerance |
        iter_count < em_control$minimum_iterations) &
-      !em_control$run_only_survival & 
-      iter_count <= maxit){
+      !em_control$run_only_survival){
   ##### EM iteration: bookkeeping #####
   start_time <- Sys.time()
   likelihood <- new_likelihood
@@ -1027,7 +1003,7 @@ while((abs(like_diff/likelihood) > em_control$convergence_tolerance |
                                   start_params = start_params)
     
     if(!leave_out){
-      save(to_save,file = paste0("Inter",model_name))
+      save(to_save,file = file.path(output_dir,paste0("Inter",model_name)))
     }
     
       
@@ -1036,7 +1012,7 @@ while((abs(like_diff/likelihood) > em_control$convergence_tolerance |
   
   ##### Latent-label alignment #####
   #reorders clusters from best to worst survival
-  if ((abs(like_diff) <
+  if ((abs(like_diff/likelihood) <
        em_control$convergence_tolerance *
        em_control$reorder_tolerance_multiplier) &
       !relabel_reset & !bootstrap & !leave_out & real_data){
@@ -1168,7 +1144,7 @@ while((abs(like_diff/likelihood) > em_control$convergence_tolerance |
       rm(fb_result)
       
       new_likelihood <- CalcLikelihood(alpha,pi_l,sweights_vec)
-      like_diff <- em_control$convergence_tolerance * 1.1
+      like_diff <- em_control$convergence_tolerance * 2
     }
       
   }
@@ -1198,7 +1174,7 @@ em_convergence <- list(
     NA
   } else {
     is.finite(like_diff) &&
-      abs(like_diff) <= em_control$convergence_tolerance &&
+      abs(like_diff/likelihood) <= em_control$convergence_tolerance &&
       iter_count >= em_control$minimum_iterations
   },
   completed_iterations = length(time_vec),
@@ -1316,28 +1292,28 @@ if (leave_out){
   num_of_people <- dim(new_act)[2]
   new_surv_covar <- SubsetSurvCovar(surv_covar_old,leave_out_inds)
   new_pi_l <- CalcPi(nu_mat,nu_covar_mat_old[leave_out_inds,])
-  
+
   surv_covar_risk_vec_new <- SurvCovarRiskVec(new_surv_covar,surv_coef)
 
   surv_event_new <- surv_event_old[leave_out_inds]
   surv_time_new <- surv_time_old[leave_out_inds]
-  
+
   sweights_vec_new <- sweights_vec_old[leave_out_inds]
 
 
-  
   ##### Initialize leave-out diagnostic containers #####
-  empty_list <- vector(mode = "list", length = 6)
-  for (i in 1:6){
+  leave_out_scenario_count <- length(CV_LEAVE_OUT_SCENARIOS)
+  empty_list <- vector(mode = "list", length = leave_out_scenario_count)
+  for (i in seq_len(leave_out_scenario_count)){
     empty_list[[i]] <- list()
   }
   
-  empty_mat_list <- vector(mode = "list", length = 6)
-  for (i in 1:6){
+  empty_mat_list <- vector(mode = "list", length = leave_out_scenario_count)
+  for (i in seq_len(leave_out_scenario_count)){
     empty_mat_list[[i]] <- matrix(0,mix_num,mix_num)
   }
   
-  empty_vec_list <- vector(mode = "list", length = 6)
+  empty_vec_list <- vector(mode = "list", length = leave_out_scenario_count)
   
   empty_mat_sublist <- vector(mode = "list", length = 3)
   for (i in 1:3){
@@ -1352,7 +1328,8 @@ if (leave_out){
   senspec_list <- empty_list
   senspec_mix_list <- empty_list
 
-  
+  cv_longitudinal_loglik <- NULL
+  cv_interval_survival_loglik <- NULL
   
   
   #One is only cycle
@@ -1361,9 +1338,14 @@ if (leave_out){
   #Four is no tran
   #Five is only act (no light\tran)
   #Six is standard
+  leave_out_types <- if (class_selection_run){
+    CV_LEAVE_OUT_SCENARIOS[["standard"]]
+  } else {
+    unname(CV_LEAVE_OUT_SCENARIOS)
+  }
   
   ##### Evaluate each information-removal scenario #####
-  for (leave_out_type in 1:6){
+  for (leave_out_type in leave_out_types){
     ##### Scenario setup #####
     new_act_working <- new_act
     new_light_working <- new_light
@@ -1384,27 +1366,43 @@ if (leave_out){
     }
     
     ##### Forward-backward prediction #####
-    alpha <- Forward(act = new_act_working,light = new_light_working,
-                     init = init,tran_list = tran_list,
-                     emit_act = emit_act,emit_light = emit_light,
-                     lod_act = lod_act, lod_light = lod_light,
-                     corr_mat = corr_mat, beta_vec = beta_vec, surv_coef = surv_coef, surv_covar_risk_vec = surv_covar_risk_vec_new,
-                     event_vec = numeric(ncol(new_act_working)),
-                     bline_vec = numeric(ncol(new_act_working)),
-                     cbline_vec = numeric(ncol(new_act_working)),
-                      lintegral_mat = lintegral_mat,
-                      surv_covar = new_surv_covar, vcovar_mat = new_vcovar_mat,
-                      lambda_act_mat = lambda_act_mat,lambda_light_mat = lambda_light_mat,
-                      tobit = T,incl_surv = MODEL_TYPE_CODES[["two_stage"]],
-                      beta_bool = beta_bool,mix_num = mix_num)
-    
     # Match held-out observations to their own weekday/weekend sequence.
-    beta <- Backward(act = new_act_working,light = new_light_working, tran_list = tran_list,
-                     emit_act = emit_act,emit_light = emit_light,
-                     lod_act = lod_act, lod_light =  lod_light, 
-                     corr_mat = corr_mat,lintegral_mat = lintegral_mat,vcovar_mat = new_vcovar_mat,
-                     lambda_act_mat = lambda_act_mat,lambda_light_mat = lambda_light_mat,
-                     tobit = tobit,mix_num = mix_num,day_length = day_length)
+
+    fb_result <- ForwardBackward(
+      act = new_act_working,
+      light = new_light_working,
+      init = init,
+      tran_list = tran_list,
+      emit_act = emit_act,
+      emit_light = emit_light,
+      lod_act = lod_act,
+      lod_light = lod_light,
+      corr_mat = corr_mat,
+      beta_vec = beta_vec,
+      surv_coef = surv_coef,
+      surv_covar_risk_vec = surv_covar_risk_vec_new,
+      event_vec = numeric(ncol(new_act_working)),
+      bline_vec = numeric(ncol(new_act_working)),
+      cbline_vec = numeric(ncol(new_act_working)),
+      lintegral_mat = lintegral_mat,
+      surv_covar = new_surv_covar,
+      vcovar_mat = new_vcovar_mat,
+      lambda_act_mat = lambda_act_mat,
+      lambda_light_mat = lambda_light_mat,
+      tobit = tobit,
+      incl_surv = MODEL_TYPE_CODES[["two_stage"]],
+      beta_bool = FALSE,
+      mix_num = mix_num,
+      vcovar_num = vcovar_num,
+      period_len = period_len
+    )
+
+    alpha <- fb_result$alpha
+    beta <- fb_result$beta
+    rm(fb_result)
+
+
+
     ##### Posterior state and class decoding #####
     weights_array_list <- CondMarginalize(alpha,beta,new_pi_l)
     weights_array_wake <- exp(weights_array_list[[1]])
@@ -1416,19 +1414,66 @@ if (leave_out){
                           mix_num = mix_num)
     } 
     
-    post_decode_collapsed_true_vec <- as.vector(post_decode_collapsed_true)
-    post_decode_collapsed_vec <- as.vector(post_decode_collapsed)
-    
     re_prob_new <- CalcProbRE(alpha,new_pi_l)
     mix_assignment_pred <- apply(re_prob_new,1,which.max)
-    
-    senspec_list[[leave_out_type]] <- empty_mat_sublist
-    senspec_mix_list[[leave_out_type]] <- vector(mode = "list", length = 3)
-    
-    if (leave_out_type != 3){
-      
+
+
+    ###########################################################################
+    # Primary model-selection diagnostics use standard LHOCV only
+    ###########################################################################
+
+    if (leave_out_type == 6) {
+
+      #########################################################################
+      # Held-out longitudinal likelihood
+      #
+      # alpha was calculated without survival information, so this is
+      # log P(Y_i | fitted training parameters).
+      #########################################################################
+
+      cv_longitudinal_loglik <- CalcCVLongitudinalLogLik(
+        alpha = alpha,
+        pi_l = new_pi_l,
+        sweights_vec = sweights_vec_new
+      )
+
+      #########################################################################
+      # Held-out survival likelihood conditional on held-out actigraphy
+      #
+      # re_prob_new = P(class | held-out longitudinal data).
+      # cbline_vec and surv_time come from the training fold.
+      #########################################################################
+
+      cv_interval_survival_loglik <-
+        CalcCVIntervalSurvivalLogLik(
+          surv_time = surv_time_new,
+          surv_event = surv_event_new,
+          cbline_vec = cbline_vec,
+          beta_vec = beta_vec,
+          re_prob = re_prob_new,
+          surv_covar_risk_vec = surv_covar_risk_vec_new,
+          sweights_vec = sweights_vec_new,
+
+          # surv_time is the training-fold survival-time vector
+          baseline_surv_time = surv_time,
+
+          interval_breaks = CV_SURVIVAL_INTERVAL_BREAKS
+        )
+    }
+
+
+
+    senspec_list[[leave_out_type]] <- list()
+    senspec_mix_list[[leave_out_type]] <- list()
+
+    if (state_reference_available && leave_out_type != 3){
+
+      post_decode_collapsed_true_vec <- as.vector(post_decode_collapsed_true)
+      post_decode_collapsed_vec <- as.vector(post_decode_collapsed)
+      senspec_list[[leave_out_type]] <- empty_mat_sublist
+      senspec_mix_list[[leave_out_type]] <- vector(mode = "list", length = 3)
       ind_med <- apply(new_act_working,2,median,na.rm = T)
-      
+
       ##### Activity-stratified state diagnostics #####
       #1 - below
       #2 - above
@@ -1471,7 +1516,7 @@ if (leave_out){
          
         
 
-    }
+      }
       
       
     }
@@ -1486,12 +1531,38 @@ if (leave_out){
     diag(conf_mat_ind) <- diag(conf_mat_ind) - 1
     
     cindex <- CalcCindex(
-      surv_time_new,surv_event_new,beta_vec,re_prob_new,
-      surv_covar_risk_vec_new
+      surv_time = surv_time_new,
+      surv_event = surv_event_new,
+      beta_vec = beta_vec,
+      re_prob = re_prob_new,
+      surv_covar_risk_vec = surv_covar_risk_vec_new,
+      sweights_vec = sweights_vec_new
     )
-    ibs <- CalcIBS(surv_time_new,surv_event_new,cbline_vec,beta_vec,surv_coef,new_surv_covar,re_prob_new,incl_surv,mix_assignment_pred,surv_covar_risk_vec_new)
-    ibs2 <- CalcIBS2(surv_time_new,surv_event_new,cbline_vec,beta_vec,re_prob_new,surv_covar_risk_vec_new)
-  
+
+
+    ibs <- CalcIBS(
+      surv_time = surv_time_new,
+      surv_event = surv_event_new,
+      cbline_vec = cbline_vec,
+      beta_vec = beta_vec,
+      surv_coef = surv_coef,
+      surv_covar = new_surv_covar,
+      re_prob = re_prob_new,
+      incl_surv = incl_surv,
+      mix_assignment = mix_assignment_pred,
+      surv_covar_risk_vec = surv_covar_risk_vec_new,
+      baseline_surv_time = surv_time
+    )
+
+    ibs2 <- CalcIBS2(
+      surv_time = surv_time_new,
+      surv_event = surv_event_new,
+      cbline_vec = cbline_vec,
+      beta_vec = beta_vec,
+      re_prob = re_prob_new,
+      surv_covar_risk_vec = surv_covar_risk_vec_new,
+      baseline_surv_time = surv_time
+    )
     
     conf_mat_list[[leave_out_type]] <- conf_mat_ind
     cindex_new_list[[leave_out_type]] <-cindex
@@ -1509,6 +1580,40 @@ if (leave_out){
                                               senspec_list = senspec_list,
                                               ibs2_new_list = ibs2_new_list,
                                               senspec_mix_list = senspec_mix_list)
+
+  leave_out_to_save$cv_longitudinal_loglik <-
+    cv_longitudinal_loglik
+
+  leave_out_to_save$cv_interval_survival_loglik <-
+    cv_interval_survival_loglik
+  leave_out_to_save$cv_fold_id <- if (exists("cv_fold_id")){
+    cv_fold_id
+  } else {
+    sim_num
+  }
+
+  leave_out_to_save$cv_fold_count <- if (exists("cv_fold_count")){
+    cv_fold_count
+  } else {
+    NA_integer_
+  }
+
+  leave_out_to_save$cv_training_event_counts <-
+    if (exists("cv_training_event_counts")){
+      cv_training_event_counts
+    } else {
+      NULL
+    }
+    
+  leave_out_to_save$leave_out_scenarios <- leave_out_types
+  leave_out_to_save$cv_interval_breaks <- CV_SURVIVAL_INTERVAL_BREAKS
+  leave_out_to_save$state_reference_available <-
+    if (exists("state_reference_available")){
+      state_reference_available
+    } else {
+      FALSE
+    }
+
 } else {
   leave_out_to_save <- list()
 }
@@ -1544,7 +1649,7 @@ ibs2 <- CalcIBS2(surv_time,surv_event,cbline_vec,beta_vec,re_prob,surv_covar_ris
 ibs <- CalcIBS(surv_time,surv_event,cbline_vec,beta_vec,surv_coef,surv_covar,
                re_prob,incl_surv,mix_assignment,surv_covar_risk_vec)
 cindex <- CalcCindex(
-  surv_time,surv_event,beta_vec,re_prob,surv_covar_risk_vec
+  surv_time,surv_event,beta_vec,re_prob,surv_covar_risk_vec,sweights_vec
 )
 diagnostics <- make_diagnostics_list(cindex = cindex,
                                      ibs = ibs,
@@ -1593,7 +1698,7 @@ if (!real_data){
   test_mix_assignment <- apply(test_re_prob,1,which.max)
   test_cindex <- CalcCindex(
     test_data$surv_time,test_data$surv_event,beta_vec,test_re_prob,
-    test_surv_covar_risk_vec
+    test_surv_covar_risk_vec, sweights_vec
   )
   test_ibs <- CalcIBS(
     test_data$surv_time,test_data$surv_event,cbline_vec,beta_vec,
@@ -1641,9 +1746,11 @@ to_save <- make_saved_results(true_params = true_params,
                               settings = settings,
                               start_params = start_params,
                               aic = aic)
-output_dir <- if (dir.exists("Routputs")){"Routputs"} else {"."}
 # model_name <- paste0("ReRun",model_name)
-save(to_save,file = file.path(output_dir,model_name))
-
-
-
+final_file <- file.path(output_dir,model_name)
+inter_file <- file.path(output_dir,paste0("Inter",model_name))
+save(to_save,file = final_file)
+#deletes inter file if final file exists
+if (file.exists(final_file) && file.exists(inter_file)){
+  unlink(inter_file)
+}

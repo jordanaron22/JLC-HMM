@@ -31,7 +31,13 @@ HOURLY_PERIODS_PER_DAY <- 24
 MINUTE_PERIODS_PER_DAY <- 1440
 LOD_OFFSET <- 1e-5
 NHANES_NUM_WAVES <- 2
-BASE_STOP_CRIT <- 1e-7
+NHANES_CV_FOLD_COUNT <- 20
+NHANES_CV_FOLD_SEED <- 20260718
+CV_SURVIVAL_INTERVAL_BREAKS <- c(0,12,24,36,48,60,72,84,102)
+CV_LEAVE_OUT_SCENARIOS <- c(sequence_only = 1, no_light = 2,
+                            no_activity = 3, no_transition = 4,
+                            activity_only = 5, standard = 6)
+BASE_STOP_CRIT <- 1e-8
 SIM_STOP_CRIT_MULTIPLIER <- 10
 MIN_EM_ITERATIONS <- 5
 INTERIM_SAVE_EVERY <- 10
