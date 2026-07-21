@@ -32,8 +32,9 @@ MINUTE_PERIODS_PER_DAY <- 1440
 LOD_OFFSET <- 1e-5
 NHANES_NUM_WAVES <- 2
 NHANES_CV_FOLD_COUNT <- 20
-NHANES_CV_FOLD_SEED <- 20260718
-CV_SURVIVAL_INTERVAL_BREAKS <- c(0,12,24,36,48,60,72,84,102)
+NHANES_CV_FOLD_SEED <- 999
+CV_SURVIVAL_INTERVAL_BREAKS <- seq(0,102,by = 6)
+CV_IBS_EVAL_TIMES <- seq(0,102,by = 1)
 CV_LEAVE_OUT_SCENARIOS <- c(sequence_only = 1, no_light = 2,
                             no_activity = 3, no_transition = 4,
                             activity_only = 5, standard = 6)

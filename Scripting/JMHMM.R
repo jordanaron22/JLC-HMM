@@ -1330,7 +1330,8 @@ if (leave_out){
 
   cv_longitudinal_loglik <- NULL
   cv_interval_survival_loglik <- NULL
-  
+  cv_cindex_data <- NULL
+  cv_survival_predictions <- NULL
   
   #One is only cycle
   #Two is no light
@@ -1424,6 +1425,29 @@ if (leave_out){
 
     if (leave_out_type == 6) {
 
+      cv_cindex_data <- cbind(
+        data.frame(
+          cv_fold_id = cv_fold_id,
+          leave_out_ind = leave_out_inds,
+          participant_id = id_old$SEQN[leave_out_inds],
+          surv_time = surv_time_new,
+          surv_event = surv_event_new,
+          risk_score =
+            log(drop(re_prob_new %*% exp(beta_vec))) +
+            surv_covar_risk_vec_new,
+          sweights_vec = sweights_vec_new,
+          predicted_class = mix_assignment_pred,
+          reference_class =
+            mix_assignment_true[leave_out_inds],
+          max_posterior =
+            apply(re_prob_new, 1, max)
+        ),
+        setNames(
+          as.data.frame(re_prob_new),
+          paste0("class_probability_", seq_len(mix_num))
+        )
+      )
+
       #########################################################################
       # Held-out longitudinal likelihood
       #
@@ -1459,6 +1483,37 @@ if (leave_out){
 
           interval_breaks = CV_SURVIVAL_INTERVAL_BREAKS
         )
+
+      cv_ibs_eval_times <- CV_IBS_EVAL_TIMES
+
+      cv_ibs_cbline <- BaselineHazardAtTimes(
+        baseline_surv_time = surv_time,
+        cbline_vec = cbline_vec,
+        prediction_times = cv_ibs_eval_times
+      )
+
+      cv_ibs_surv_prob <- CalcS(
+        event_time = cv_ibs_eval_times,
+        cbline_vec_new = cv_ibs_cbline,
+        beta_vec = beta_vec,
+        re_prob = re_prob_new,
+        surv_covar_risk_vec = surv_covar_risk_vec_new
+      )
+
+      stopifnot(
+        nrow(cv_ibs_surv_prob) == length(cv_ibs_eval_times),
+        ncol(cv_ibs_surv_prob) == length(leave_out_inds)
+      )
+
+      cv_survival_predictions <- list(
+        cv_fold_id = cv_fold_id,
+        leave_out_ind = leave_out_inds,
+        surv_time = surv_time_new,
+        surv_event = surv_event_new,
+        sweights_vec = sweights_vec_new,
+        eval_times = cv_ibs_eval_times,
+        surv_prob = cv_ibs_surv_prob
+      )
     }
 
 
@@ -1586,11 +1641,13 @@ if (leave_out){
 
   leave_out_to_save$cv_interval_survival_loglik <-
     cv_interval_survival_loglik
-  leave_out_to_save$cv_fold_id <- if (exists("cv_fold_id")){
-    cv_fold_id
-  } else {
-    sim_num
-  }
+
+  leave_out_to_save$cv_cindex_data <- cv_cindex_data
+
+  leave_out_to_save$cv_survival_predictions <-
+    cv_survival_predictions
+
+  leave_out_to_save$cv_fold_id <- cv_fold_id
 
   leave_out_to_save$cv_fold_count <- if (exists("cv_fold_count")){
     cv_fold_count
@@ -1604,7 +1661,7 @@ if (leave_out){
     } else {
       NULL
     }
-    
+
   leave_out_to_save$leave_out_scenarios <- leave_out_types
   leave_out_to_save$cv_interval_breaks <- CV_SURVIVAL_INTERVAL_BREAKS
   leave_out_to_save$state_reference_available <-

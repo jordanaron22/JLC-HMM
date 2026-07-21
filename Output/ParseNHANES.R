@@ -5,7 +5,7 @@ args <- commandArgs(trailingOnly = TRUE)
 input_dir <- if (length(args) >= 1){
   args[[1]]
 } else {
-  file.path("Output","RoutputsNHANES")
+  file.path("Output","Routputs","RoutputsNHANES")
 }
 
 output_file <- if (length(args) >= 2){

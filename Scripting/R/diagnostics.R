@@ -391,9 +391,7 @@ CalcCVIntervalSurvivalLogLik <- function(
     surv_covar_risk_vec,
     sweights_vec,
     baseline_surv_time,
-    interval_breaks = c(
-      0, 12, 24, 36, 48, 60, 72, 84, 102
-    )
+    interval_breaks = seq(0,102,by = 6)
 ) {
 
   num_people <- length(surv_time)
@@ -498,8 +496,8 @@ CalcCVIntervalSurvivalLogLik <- function(
   ###########################################################################
   # Determine the interval containing each observed death
   #
-  # right = TRUE gives:
-  #   [0,12], (12,24], ..., (84,102]
+  # With 6-month breaks and right = TRUE this gives:
+  #   [0,6], (6,12], ..., (96,102]
   ###########################################################################
 
   event_indicator <- surv_event == 1
@@ -742,4 +740,383 @@ CalcCVIntervalSurvivalLogLik <- function(
     prediction_times
 
   result
+}
+
+CalcSurveyWeightedIBS <- function(
+    surv_time,
+    surv_event,
+    surv_prob,
+    eval_times,
+    sweights_vec
+) {
+
+  num_people <- length(surv_time)
+
+  ###########################################################################
+  # Input checks
+  ###########################################################################
+
+  if (
+    length(surv_event) != num_people ||
+    length(surv_time) == 0 ||
+    length(sweights_vec) != num_people
+  ) {
+    stop(
+      paste(
+        "surv_time, surv_event, and sweights_vec",
+        "must have equal lengths"
+      )
+    )
+  }
+
+  if (any(!is.finite(surv_time)) || any(surv_time < 0)) {
+    stop("surv_time must contain finite nonnegative times")
+  }
+
+  if (!is.matrix(surv_prob)) {
+    stop("surv_prob must be a matrix")
+  }
+
+  if (
+    nrow(surv_prob) != length(eval_times) ||
+    ncol(surv_prob) != num_people
+  ) {
+    stop(
+      paste(
+        "surv_prob must have one row per evaluation time",
+        "and one column per participant"
+      )
+    )
+  }
+
+  if (any(is.na(surv_event)) || any(!surv_event %in% c(0, 1))) {
+    stop("surv_event must contain only 0 and 1")
+  }
+
+  if (
+    any(!is.finite(sweights_vec)) ||
+    any(sweights_vec < 0) ||
+    sum(sweights_vec) <= 0
+  ) {
+    stop("Invalid sampling weights")
+  }
+
+  if (
+    any(!is.finite(surv_prob)) ||
+    any(surv_prob < -1e-12) ||
+    any(surv_prob > 1 + 1e-12)
+  ) {
+    stop("surv_prob contains invalid probabilities")
+  }
+
+  if (
+    length(eval_times) < 2 ||
+    any(!is.finite(eval_times)) ||
+    any(diff(eval_times) <= 0)
+  ) {
+    stop("eval_times must be finite and strictly increasing")
+  }
+
+  # Protect against negligible numerical excursions.
+  surv_prob <- pmin(
+    pmax(surv_prob, 0),
+    1
+  )
+
+  ###########################################################################
+  # Survey-weighted censoring distribution
+  #
+  # For this survival model:
+  #   1 - surv_event = 1 indicates censoring.
+  ###########################################################################
+
+  censoring_fit <- survival::survfit(
+    survival::Surv(
+      surv_time,
+      1 - surv_event
+    ) ~ 1,
+    weights = sweights_vec
+  )
+
+  evaluate_censoring_survival <- function(
+      times,
+      left_limit = FALSE
+  ) {
+
+    interval_index <- findInterval(
+      times,
+      censoring_fit$time
+    )
+
+    if (left_limit) {
+
+      positive_index <- which(
+        interval_index > 0L
+      )
+
+      exact_match <- positive_index[
+        censoring_fit$time[
+          interval_index[positive_index]
+        ] == times[positive_index]
+      ]
+
+      interval_index[exact_match] <-
+        interval_index[exact_match] - 1L
+    }
+
+    result <- rep(
+      1,
+      length(times)
+    )
+
+    has_previous_time <-
+      interval_index > 0L
+
+    result[has_previous_time] <-
+      censoring_fit$surv[
+        interval_index[has_previous_time]
+      ]
+
+    result
+  }
+
+  # G(t), used for people known to survive beyond t.
+  censoring_survival_eval <-
+    evaluate_censoring_survival(
+      eval_times,
+      left_limit = FALSE
+    )
+
+  # G(T_i-), used for observed deaths.
+  censoring_survival_event_minus <-
+    evaluate_censoring_survival(
+      surv_time,
+      left_limit = TRUE
+    )
+
+  if (any(censoring_survival_eval <= 0)) {
+    stop(
+      paste(
+        "The weighted censoring-survival estimate reaches zero",
+        "within the IBS evaluation grid.",
+        "Use an earlier common endpoint."
+      )
+    )
+  }
+
+  event_indices <- surv_event == 1
+
+  if (any(
+    censoring_survival_event_minus[event_indices] <= 0
+  )) {
+    stop(
+      paste(
+        "At least one death has zero estimated",
+        "censoring-survival probability"
+      )
+    )
+  }
+
+  ###########################################################################
+  # Survey-weighted IPCW Brier score at each time
+  ###########################################################################
+
+  brier_score <- numeric(
+    length(eval_times)
+  )
+
+  survey_weight_sum <- sum(
+    sweights_vec
+  )
+
+  for (time_index in seq_along(eval_times)) {
+
+    current_time <- eval_times[time_index]
+
+    died_by_time <-
+      surv_event == 1 &
+      surv_time <= current_time
+
+    observed_beyond_time <-
+      surv_time > current_time
+
+    ipcw <- numeric(num_people)
+
+    # Known to have died by current_time.
+    ipcw[died_by_time] <-
+      1 /
+      censoring_survival_event_minus[died_by_time]
+
+    # Known to remain event-free through current_time.
+    ipcw[observed_beyond_time] <-
+      1 /
+      censoring_survival_eval[time_index]
+
+    # Censored before current_time receive weight zero because their
+    # event status at current_time is unknown.
+
+    observed_survival_status <-
+      as.numeric(
+        surv_time > current_time
+      )
+
+    squared_error <-
+      (
+        observed_survival_status -
+        surv_prob[time_index, ]
+      )^2
+
+    brier_score[time_index] <-
+      sum(
+        sweights_vec *
+        ipcw *
+        squared_error
+      ) /
+      survey_weight_sum
+  }
+
+  ###########################################################################
+  # Integrate the Brier-score curve using the trapezoidal rule
+  ###########################################################################
+
+  integration_range <-
+    max(eval_times) -
+    min(eval_times)
+
+  if (integration_range <= 0) {
+    stop(
+      "The IBS evaluation grid must span a positive time interval"
+    )
+  }
+
+  time_width <- diff(
+    eval_times
+  )
+
+  integrated_area <- sum(
+    time_width *
+    (
+      head(brier_score, -1) +
+      tail(brier_score, -1)
+    ) /
+    2
+  )
+
+  ibs <- integrated_area /
+    integration_range
+
+  list(
+    ibs = ibs,
+    eval_times = eval_times,
+    brier_score = brier_score,
+    censoring_survival_at_eval_times =
+      censoring_survival_eval,
+    minimum_censoring_survival =
+      min(censoring_survival_eval),
+    survey_weight_sum =
+      survey_weight_sum,
+    participant_count =
+      num_people,
+    event_count =
+      sum(surv_event == 1)
+  )
+}
+
+CalcSurveyWeightedPartialLogLik <- function(
+    surv_time,
+    surv_event,
+    risk_score,
+    sweights_vec
+) {
+
+  num_people <- length(surv_time)
+
+  if (
+    length(surv_event) != num_people ||
+    length(risk_score) != num_people ||
+    length(sweights_vec) != num_people ||
+    num_people == 0
+  ) {
+    stop(
+      paste(
+        "surv_time, surv_event, risk_score, and sweights_vec",
+        "must have equal nonzero lengths"
+      )
+    )
+  }
+
+  if (any(!is.finite(surv_time)) || any(surv_time < 0)) {
+    stop("surv_time must contain finite nonnegative times")
+  }
+  if (any(is.na(surv_event)) || any(!surv_event %in% c(0,1))) {
+    stop("surv_event must contain only 0 and 1")
+  }
+  if (any(!is.finite(risk_score))) {
+    stop("risk_score must be finite")
+  }
+  if (
+    any(!is.finite(sweights_vec)) ||
+    any(sweights_vec < 0) ||
+    sum(sweights_vec) <= 0
+  ) {
+    stop(
+      paste(
+        "sweights_vec must contain finite nonnegative weights",
+        "with a positive sum"
+      )
+    )
+  }
+  if (sum(surv_event == 1) == 0) {
+    stop("At least one observed event is required for partial likelihood")
+  }
+
+  event_times <- sort(unique(surv_time[surv_event == 1]))
+  partial_loglik <- 0
+  event_weight_sum <- 0
+
+  for (event_time in event_times) {
+    event_rows <- surv_event == 1 & surv_time == event_time
+    risk_rows <- surv_time >= event_time
+
+    event_weight <- sum(sweights_vec[event_rows])
+    if (event_weight <= 0) {
+      next
+    }
+
+    risk_weights <- sweights_vec[risk_rows]
+    risk_scores <- risk_score[risk_rows]
+    positive_risk_rows <- risk_weights > 0
+    if (!any(positive_risk_rows)) {
+      stop("Risk set has zero total weight at event time ",event_time)
+    }
+
+    risk_weights <- risk_weights[positive_risk_rows]
+    risk_scores <- risk_scores[positive_risk_rows]
+    max_risk_score <- max(risk_scores)
+    log_weighted_risk_sum <-
+      max_risk_score +
+      log(sum(risk_weights * exp(risk_scores - max_risk_score)))
+
+    partial_loglik <-
+      partial_loglik +
+      sum(sweights_vec[event_rows] * risk_score[event_rows]) -
+      event_weight * log_weighted_risk_sum
+
+    event_weight_sum <- event_weight_sum + event_weight
+  }
+
+  if (event_weight_sum <= 0) {
+    stop("Observed events have zero total survey weight")
+  }
+
+  list(
+    partial_loglik = partial_loglik,
+    event_weighted_mean = partial_loglik / event_weight_sum,
+    event_weight_sum = event_weight_sum,
+    survey_weight_sum = sum(sweights_vec),
+    participant_count = num_people,
+    event_count = sum(surv_event == 1),
+    unique_event_time_count = length(event_times),
+    ties_method = "breslow"
+  )
 }

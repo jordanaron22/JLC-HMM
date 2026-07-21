@@ -18,10 +18,10 @@ default_settings <- list(
   model_type = "joint", # "joint", "two_stage"
   data_source = "nhanes", #"nhanes" or "simulation"
   run_bootstrap = FALSE,
-  init_jitter_scale = 0.05,
-  run_leave_one_out_cv = TRUE,
+  init_jitter_scale = 0.00,
+  run_leave_one_out_cv = FALSE,
   use_hot_start = TRUE,
-  class_selection_run = TRUE,
+  class_selection_run = FALSE,
   emission_overlap = "low",
   simulation_days = DEFAULT_SIMULATION_DAYS,
   num_people = DEFAULT_SIMULATION_PEOPLE,
