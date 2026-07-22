@@ -1,5 +1,9 @@
+#!/usr/bin/env Rscript
+
 library(ggplot2)
+
 input_file <- file.path("Output","parse_sim_results.rds")
+output_prefix <- file.path("Output","Figures","sim_fit_mix5_diagnostics")
 
 
 title_case <- function(x){
@@ -103,15 +107,25 @@ plot_data <- plot_data[order(plot_data$diagnostic,
                              plot_data$model_type),]
 row.names(plot_data) <- NULL
 
-ggplot(
+fit_mix5_diagnostics_plot <- ggplot(
   plot_data,
   aes(x = days_label,y = value,fill = model_type_label)
 ) +
-  geom_col(position = position_dodge()) +
+  geom_col(position = position_dodge(),color = "black") +
   facet_grid(rows = vars(diagnostic_label),
                       cols = vars(overlap_label),
                       scales = "free_y") +
+  scale_fill_viridis_d(end = .85,name = "Model") +
+  theme_bw() +
   labs(x = "Days",y = "Mean diagnostic",fill = "Model")
 
+print(fit_mix5_diagnostics_plot)
 
-ggsave("SurvivalDiagnosticsSim.png", path = "Output/Plots", width = 10, height = 6, dpi = 300)
+dir.create(dirname(output_prefix),recursive = TRUE,showWarnings = FALSE)
+ggsave(
+  paste0(output_prefix,".png"),
+  fit_mix5_diagnostics_plot,
+  width = 10,
+  height = 6,
+  dpi = 300
+)

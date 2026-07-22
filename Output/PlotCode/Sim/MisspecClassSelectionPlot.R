@@ -1,4 +1,9 @@
+#!/usr/bin/env Rscript
+
+library(ggplot2)
+
 input_file <- file.path("Output","parse_sim_results.rds")
+output_prefix <- file.path("Output","Figures","sim_misspec_class_selection")
 
 
 group_key <- function(data,cols){
@@ -97,18 +102,35 @@ for (indices in scenario_groups){
 plot_data <- do.call(rbind,plot_rows)
 
 
-ggplot(
-  plot_data |> dplyr::filter(model_type == "joint", emission_overlap == "low"),
-  aes(x = selected_fit_mix_num, y = percent,
-               fill = factor(model_type))
+plot_df <- plot_data |>
+  dplyr::filter(model_type == "joint",emission_overlap == "low")
+
+plot_df$selected_fit_mix_num <- factor(
+  plot_df$selected_fit_mix_num,
+  levels = class_levels
+)
+
+class_selection_plot <- ggplot(
+  plot_df,
+  aes(x = selected_fit_mix_num,y = percent)
 ) +
   geom_col(
-    position = position_dodge2()
+    position = position_dodge2(),
+    fill = "grey70",
+    color = "black"
   ) +
   facet_grid(rows = vars(criterion),
-                      cols = vars(days, emission_overlap)) +
-  labs(x = "Selected latent classes",
-                y = "Selections (%)",
-                fill = "Model")
+             cols = vars(days)) +
+  theme_bw() +
+  labs(x = "Selected latent classes",y = "Selections (%)")
 
-ggsave("class_selection_percentages.png",  path = "Output/Plots",width = 10, height = 6, dpi = 300)
+print(class_selection_plot)
+
+dir.create(dirname(output_prefix),recursive = TRUE,showWarnings = FALSE)
+ggsave(
+  paste0(output_prefix,".png"),
+  class_selection_plot,
+  width = 10,
+  height = 6,
+  dpi = 300
+)

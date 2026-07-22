@@ -718,48 +718,6 @@ out <- list(
 dir.create(dirname(output_file),recursive = TRUE,showWarnings = FALSE)
 saveRDS(out,output_file)
 
-summary_file <- sub("[.]rds$","_summary.csv",output_file,ignore.case = TRUE)
-per_run_file <- sub("[.]rds$","_per_run.csv",output_file,ignore.case = TRUE)
-model_selection_file <- sub("[.]rds$","_model_selection.csv",
-                            output_file,ignore.case = TRUE)
-model_selection_screened_file <- sub("[.]rds$",
-                                     "_model_selection_screened.csv",
-                                     output_file,ignore.case = TRUE)
-best_likelihood_file <- sub("[.]rds$","_best_likelihood.csv",
-                            output_file,ignore.case = TRUE)
-cv_longitudinal_loglik_file <- sub("[.]rds$",
-                                   "_cv_longitudinal_loglik_summary.csv",
-                                   output_file,ignore.case = TRUE)
-cv_interval_survival_loglik_file <- sub(
-  "[.]rds$",
-  "_cv_interval_survival_loglik_summary.csv",
-  output_file,
-  ignore.case = TRUE
-)
-
-write.csv(scenario_summary,summary_file,row.names = FALSE)
-write.csv(per_run,per_run_file,row.names = FALSE)
-write.csv(model_selection,model_selection_file,row.names = FALSE)
-write.csv(model_selection_screened,model_selection_screened_file,
-          row.names = FALSE)
-write.csv(best_likelihood_by_scenario,best_likelihood_file,row.names = FALSE)
-write.csv(cv_longitudinal_loglik_summary,cv_longitudinal_loglik_file,
-          row.names = FALSE)
-write.csv(cv_interval_survival_loglik_summary,
-          cv_interval_survival_loglik_file,row.names = FALSE)
-
-message("Read ",length(files)," files from: ",input_dir)
-message("Saved parsed NHANES runtime data to: ",output_file)
-message("Saved scenario summary to: ",summary_file)
-message("Saved per-run data to: ",per_run_file)
-message("Saved BIC model selection to: ",model_selection_file)
-message("Saved screened BIC model selection to: ",
-        model_selection_screened_file)
-message("Saved best-likelihood scenarios to: ",best_likelihood_file)
-message("Saved pooled longitudinal CV log-likelihood to: ",
-        cv_longitudinal_loglik_file)
-message("Saved pooled interval-survival CV log-likelihood to: ",
-        cv_interval_survival_loglik_file)
 
 if (length(errors) > 0){
   message("Parse errors: ",length(errors))

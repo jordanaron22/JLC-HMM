@@ -1,5 +1,9 @@
+#!/usr/bin/env Rscript
+
 library(ggplot2)
+
 input_file <- file.path("Output","parse_sim_results.rds")
+output_prefix <- file.path("Output","Figures","sim_survival_rmse")
 
 
 title_case <- function(x){
@@ -38,7 +42,53 @@ best_class_match <- function(confusion_table){
 }
 
 
+available_rda_files <- list.files(
+  file.path("Output","Routputs"),
+  pattern = "\\.rda$",
+  recursive = TRUE,
+  full.names = TRUE
+)
+
+
+resolve_saved_file <- function(file,allow_missing = FALSE){
+  candidates <- c(
+    file,
+    file.path("Output",file),
+    file.path("Output","Routputs",basename(file)),
+    file.path("Output","Routputs","RoutputsFull",basename(file)),
+    file.path("Routputs",basename(file)),
+    file.path("Routputs","RoutputsFull",basename(file))
+  )
+
+  existing <- candidates[file.exists(candidates)]
+  if (length(existing) > 0){
+    return(existing[[1]])
+  }
+
+  matches <- available_rda_files[
+    basename(available_rda_files) == basename(file)
+  ]
+  if (length(matches) == 1){
+    return(matches[[1]])
+  }
+  if (length(matches) > 1){
+    stop("Multiple matching saved files found for ",file)
+  }
+
+  if (allow_missing){
+    return(NA_character_)
+  }
+
+  stop("Could not find saved file ",file)
+}
+
+
 get_beta_data <- function(file){
+  file <- resolve_saved_file(file,allow_missing = TRUE)
+  if (is.na(file)){
+    return(NULL)
+  }
+
   load_env <- new.env(parent = emptyenv())
   load(file,envir = load_env)
   saved <- load_env[["to_save"]]
@@ -81,14 +131,32 @@ run_cols <- c("file","true_mix_num","fit_mix_num","model_type",
               "simulation_days","num_people","emission_overlap","sim_num")
 
 coef_rows <- list()
+missing_files <- character()
 for (i in seq_len(nrow(dat))){
   beta_data <- get_beta_data(dat$file[[i]])
+  if (is.null(beta_data)){
+    missing_files <- c(missing_files,dat$file[[i]])
+    next
+  }
+
   beta_data <- beta_data[beta_data$beta_num > 1,]
 
   run_data <- dat[i,run_cols,drop = FALSE]
   run_data <- run_data[rep(1,nrow(beta_data)),]
 
   coef_rows[[length(coef_rows) + 1]] <- cbind(run_data,beta_data)
+}
+
+if (length(missing_files) > 0){
+  warning(
+    "Skipped ",length(missing_files),
+    " rows because the saved model file was not found. First missing file: ",
+    missing_files[[1]]
+  )
+}
+
+if (length(coef_rows) == 0){
+  stop("No saved model files were available to calculate survival RMSE.")
 }
 
 coef_data <- do.call(rbind,coef_rows)
@@ -184,8 +252,23 @@ plot_data <- plot_data[,c("true_mix_num","fit_mix_num","model_type","days",
 row.names(plot_data) <- NULL
 
 
-ggplot(plot_data, aes(x = factor(days), y = rmse, fill = factor(model_type))) + 
-  geom_col(position = position_dodge()) + 
-  facet_grid(rows = vars(emission_overlap),scales = "free_y") 
+survival_rmse_plot <- ggplot(
+  plot_data,
+  aes(x = days_label,y = rmse,fill = model_type_label)
+) +
+  geom_col(position = position_dodge(),color = "black") +
+  facet_grid(rows = vars(overlap_label),scales = "free_y") +
+  scale_fill_viridis_d(end = .85,name = "Model") +
+  theme_bw() +
+  labs(x = "Days",y = "Survival coefficient RMSE")
 
-ggsave("survival_rmse.png",  path = "Output/Plots",width = 10, height = 6, dpi = 300)
+print(survival_rmse_plot)
+
+dir.create(dirname(output_prefix),recursive = TRUE,showWarnings = FALSE)
+ggsave(
+  paste0(output_prefix,".png"),
+  survival_rmse_plot,
+  width = 10,
+  height = 6,
+  dpi = 300
+)

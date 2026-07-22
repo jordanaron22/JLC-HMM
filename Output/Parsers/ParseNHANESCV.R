@@ -1437,44 +1437,8 @@ out <- list(
 dir.create(dirname(output_file),recursive = TRUE,showWarnings = FALSE)
 saveRDS(out,output_file)
 
-summary_file <- sub("[.]rds$","_summary.csv",output_file,ignore.case = TRUE)
-per_fold_file <- sub("[.]rds$","_per_fold.csv",output_file,ignore.case = TRUE)
-cindex_data_file <- sub("[.]rds$","_cindex_data.csv",
-                        output_file,ignore.case = TRUE)
-cindex_summary_file <- sub("[.]rds$","_cindex_summary.csv",
-                           output_file,ignore.case = TRUE)
-pooled_ibs_file <- sub("[.]rds$","_pooled_ibs.csv",
-                       output_file,ignore.case = TRUE)
-pooled_brier_curve_file <- sub("[.]rds$","_pooled_brier_curve.csv",
-                               output_file,ignore.case = TRUE)
-partial_loglik_file <- sub("[.]rds$","_partial_loglik.csv",
-                           output_file,ignore.case = TRUE)
-model_selection_file <- sub("[.]rds$","_model_selection.csv",
-                            output_file,ignore.case = TRUE)
-missing_file <- sub("[.]rds$","_missing_jobs.csv",output_file,
-                    ignore.case = TRUE)
-
-# write.csv(cv_summary_by_model,summary_file,row.names = FALSE)
-# write.csv(per_fold,per_fold_file,row.names = FALSE)
-# write.csv(cv_cindex_data,cindex_data_file,row.names = FALSE)
-# write.csv(cv_cindex_summary,cindex_summary_file,row.names = FALSE)
-# write.csv(cv_ibs_summary,pooled_ibs_file,row.names = FALSE)
-# write.csv(cv_ibs_curve,pooled_brier_curve_file,row.names = FALSE)
-# write.csv(cv_partial_loglik_summary,partial_loglik_file,row.names = FALSE)
-# write.csv(cv_model_selection,model_selection_file,row.names = FALSE)
-# write.csv(missing_cv_jobs,missing_file,row.names = FALSE)
-
 message("Read ",length(files)," leave-out files from: ",input_dir)
 message("Saved parsed NHANES CV data to: ",output_file)
-message("Saved CV summary to: ",summary_file)
-message("Saved fold-level CV data to: ",per_fold_file)
-message("Saved pooled C-index data to: ",cindex_data_file)
-message("Saved pooled C-index summary to: ",cindex_summary_file)
-message("Saved pooled weighted IBS summary to: ",pooled_ibs_file)
-message("Saved pooled weighted Brier curve to: ",pooled_brier_curve_file)
-message("Saved pooled partial likelihood summary to: ",partial_loglik_file)
-message("Saved CV model-selection rankings to: ",model_selection_file)
-message("Saved missing CV jobs to: ",missing_file)
 
 if (length(errors) > 0){
   message("Parse errors: ",length(errors))
@@ -1482,6 +1446,3 @@ if (length(errors) > 0){
 if (nrow(missing_cv_jobs) > 0){
   message("Missing CV jobs: ",nrow(missing_cv_jobs))
 }
-
-
-cv_model_selection |> filter(selection_group == "joint") |> select(fit_mix_num,cv_interval_survival_loglik_selected, cv_partial_loglik_selected,cindex_scenario6_pooled_oof_selected,cv_ibs_pooled_weighted_selected )
