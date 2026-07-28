@@ -745,6 +745,468 @@ RebuildOakesPosteriorContext <- function(theta,theta_pack,data_context,
                              profile_error = NA_real_)
 }
 
+RebuildLongitudinalPosteriorContext <- function(
+    theta,theta_pack,data_context,
+    make_inactive_day_types_safe = TRUE){
+  params <- UnpackOakesTheta(theta,theta_pack)
+  fb_params <- params
+  if (make_inactive_day_types_safe){
+    fb_params <- MakeInactiveDayTypesSafe(fb_params,data_context$vcovar_mat)
+  }
+
+  pi_l <- CalcPi(params$nu_mat,data_context$nu_covar_mat)
+  lintegral_mat <- CalcLintegralMat(fb_params$emit_act,fb_params$emit_light,
+                                    fb_params$corr_mat,
+                                    data_context$lod_act,
+                                    data_context$lod_light)
+  tran_list <- GenTranList(fb_params$params_tran_array,
+                           seq_len(nrow(data_context$act)),
+                           ncol(pi_l),
+                           dim(fb_params$params_tran_array)[3],
+                           period_len = data_context$period_len)
+
+  survival_context <- data_context$survival_context
+  if (is.null(survival_context)){
+    n <- ncol(data_context$act)
+    survival_context <- list(
+      surv_event = rep(0,n),
+      surv_time = rep(1,n),
+      surv_covar = list(rep(0,n)),
+      sweights_vec = data_context$sweights_vec
+    )
+  }
+
+  fb_result <- ForwardBackward(
+    act = data_context$act,
+    light = data_context$light,
+    init = params$init,
+    tran_list = tran_list,
+    emit_act = fb_params$emit_act,
+    emit_light = fb_params$emit_light,
+    lod_act = data_context$lod_act,
+    lod_light = data_context$lod_light,
+    corr_mat = fb_params$corr_mat,
+    beta_vec = params$beta_vec,
+    surv_coef = params$surv_coef,
+    surv_covar_risk_vec = rep(0,length(survival_context$surv_event)),
+    event_vec = survival_context$surv_event,
+    bline_vec = rep(1,length(survival_context$surv_event)),
+    cbline_vec = rep(0,length(survival_context$surv_event)),
+    lintegral_mat = lintegral_mat,
+    surv_covar = survival_context$surv_covar,
+    vcovar_mat = data_context$vcovar_mat,
+    lambda_act_mat = data_context$lambda_act_mat,
+    lambda_light_mat = data_context$lambda_light_mat,
+    tobit = data_context$tobit,
+    incl_surv = MODEL_TYPE_CODES[["two_stage"]],
+    beta_bool = FALSE,
+    mix_num = ncol(pi_l),
+    vcovar_num = dim(fb_params$params_tran_array)[3],
+    period_len = data_context$period_len
+  )
+
+  alpha <- fb_result$alpha
+  beta <- fb_result$beta
+
+  re_prob <- CalcProbRE(alpha,pi_l)
+
+  BuildOakesPosteriorContext(alpha = alpha,
+                             beta = beta,
+                             pi_l = pi_l,
+                             sweights_vec = data_context$sweights_vec,
+                             act = data_context$act,
+                             light = data_context$light,
+                             vcovar_mat = data_context$vcovar_mat,
+                             params_tran_array =
+                               fb_params$params_tran_array,
+                             emit_act = fb_params$emit_act,
+                             emit_light = fb_params$emit_light,
+                             corr_mat = fb_params$corr_mat,
+                             lod_act = data_context$lod_act,
+                             lod_light = data_context$lod_light,
+                             lambda_act_mat = data_context$lambda_act_mat,
+                             lambda_light_mat =
+                               data_context$lambda_light_mat,
+                             tobit = data_context$tobit,
+                             period_len = data_context$period_len,
+                             lintegral_mat = lintegral_mat,
+                             nu_covar_mat = data_context$nu_covar_mat,
+                             survival_context = NULL,
+                             re_prob = re_prob,
+                             bline_vec = NULL,
+                             cbline_vec = NULL,
+                             survival_baseline_mode = "longitudinal_only",
+                             surv_covar_risk_vec = NULL,
+                             profile_iterations = NA_integer_,
+                             profile_error = NA_real_)
+}
+
+GetLongitudinalIndex <- function(theta_pack){
+  which(theta_pack$parameter_map$block != "survival")
+}
+
+BuildLongitudinalH1 <- function(theta_pack,posterior_context,oakes_params,
+                                data_context,long_idx =
+                                  GetLongitudinalIndex(theta_pack)){
+  init_h1 <- CalcOakesInitialH1(init = oakes_params$init,
+                                init_counts =
+                                  posterior_context$init_counts,
+                                sleep_state = theta_pack$sleep_state)
+
+  tran_h1 <- CalcOakesTransitionH1(
+    alpha = posterior_context$alpha,
+    beta = posterior_context$beta,
+    act = data_context$act,
+    light = data_context$light,
+    params_tran_array = oakes_params$params_tran_array,
+    emit_act = oakes_params$emit_act,
+    emit_light = oakes_params$emit_light,
+    corr_mat = oakes_params$corr_mat,
+    pi_l = posterior_context$pi_l,
+    lod_act = data_context$lod_act,
+    lod_light = data_context$lod_light,
+    lintegral_mat = posterior_context$lintegral_mat,
+    vcovar_mat = data_context$vcovar_mat,
+    lambda_act_mat = data_context$lambda_act_mat,
+    lambda_light_mat = data_context$lambda_light_mat,
+    tobit = data_context$tobit,
+    period_len = data_context$period_len,
+    sweights_vec = data_context$sweights_vec)
+
+  emit_h1 <- CalcOakesEmissionH1(
+    alpha = posterior_context$alpha,
+    beta = posterior_context$beta,
+    pi_l = posterior_context$pi_l,
+    act = data_context$act,
+    light = data_context$light,
+    vcovar_mat = data_context$vcovar_mat,
+    emit_act = oakes_params$emit_act,
+    emit_light = oakes_params$emit_light,
+    corr_mat = oakes_params$corr_mat,
+    lod_act = data_context$lod_act,
+    lod_light = data_context$lod_light,
+    sweights_vec = data_context$sweights_vec)
+
+  mix_h1 <- CalcOakesMixingH1(
+    nu_mat = oakes_params$nu_mat,
+    re_prob = posterior_context$re_prob,
+    nu_covar_mat = data_context$nu_covar_mat,
+    sweights_vec = data_context$sweights_vec
+  )
+
+  H1 <- Matrix::bdiag(init_h1$hessian,tran_h1$hessian,
+                      emit_h1$hessian,mix_h1$hessian)
+  H1 <- as.matrix(H1)
+  rownames(H1) <- names(theta_pack$theta)[long_idx]
+  colnames(H1) <- names(theta_pack$theta)[long_idx]
+
+  list(H1 = H1,
+       components = list(initial = init_h1,
+                         transition = tran_h1,
+                         emission = emit_h1,
+                         mixing = mix_h1),
+       long_idx = long_idx,
+       parameter_map = theta_pack$parameter_map[long_idx,,drop = FALSE])
+}
+
+CalcLongitudinalOakesScore <- function(
+    theta,theta_pack,posterior_context,
+    long_idx = GetLongitudinalIndex(theta_pack),
+    return_components = FALSE,
+    drop_nonfinite_transition_weights = TRUE){
+  params <- UnpackOakesTheta(theta,theta_pack)
+  parameter_map <- theta_pack$parameter_map
+  score_full <- numeric(length(theta))
+  names(score_full) <- names(theta)
+  components <- list()
+
+  sweights_vec <- GetOakesContextValue(posterior_context,"sweights_vec")
+
+  fill_score <- function(block,block_score){
+    idx <- which(parameter_map$block == block)
+    if (length(idx) != length(block_score)){
+      stop(paste("Score length mismatch for block",block,
+                 ": expected",length(idx),"got",length(block_score)))
+    }
+    score_full[idx] <<- block_score
+  }
+
+  init_counts <- GetOakesContextValue(posterior_context,"init_counts",
+                                      required = FALSE)
+  if (is.null(init_counts)){
+    init_counts <- CalcOakesInitialCounts(
+      alpha = GetOakesContextValue(posterior_context,"alpha"),
+      beta = GetOakesContextValue(posterior_context,"beta"),
+      pi_l = GetOakesContextValue(posterior_context,"pi_l"),
+      sweights_vec = sweights_vec)
+  }
+  init_score <- CalcOakesInitialH1(params$init,init_counts,
+                                  theta_pack$sleep_state)
+  fill_score("initial",init_score$score)
+  components$initial <- init_score
+
+  transition_weights <- GetOakesContextValue(posterior_context,
+                                             "transition_weights",
+                                             required = FALSE)
+  if (is.null(transition_weights)){
+    context_params_tran_array <- GetOakesContextValue(
+      posterior_context,"params_tran_array",
+      default = theta_pack$templates$params_tran_array,
+      required = FALSE)
+    context_emit_act <- GetOakesContextValue(
+      posterior_context,"emit_act",
+      default = theta_pack$templates$emit_act,
+      required = FALSE)
+    context_emit_light <- GetOakesContextValue(
+      posterior_context,"emit_light",
+      default = theta_pack$templates$emit_light,
+      required = FALSE)
+    context_corr_mat <- GetOakesContextValue(
+      posterior_context,"corr_mat",
+      default = theta_pack$templates$corr_mat,
+      required = FALSE)
+    context_lintegral_mat <- GetOakesContextValue(
+      posterior_context,"lintegral_mat",required = FALSE)
+    if (is.null(context_lintegral_mat)){
+      context_lintegral_mat <- CalcLintegralMat(
+        context_emit_act,context_emit_light,context_corr_mat,
+        GetOakesContextValue(posterior_context,"lod_act"),
+        GetOakesContextValue(posterior_context,"lod_light"))
+    }
+
+    transition_weights <- CalcOakesTransitionPosteriorWeights(
+      alpha = GetOakesContextValue(posterior_context,"alpha"),
+      beta = GetOakesContextValue(posterior_context,"beta"),
+      pi_l = GetOakesContextValue(posterior_context,"pi_l"),
+      act = GetOakesContextValue(posterior_context,"act"),
+      light = GetOakesContextValue(posterior_context,"light"),
+      params_tran_array = context_params_tran_array,
+      emit_act = context_emit_act,
+      emit_light = context_emit_light,
+      corr_mat = context_corr_mat,
+      lod_act = GetOakesContextValue(posterior_context,"lod_act"),
+      lod_light = GetOakesContextValue(posterior_context,"lod_light"),
+      lintegral_mat = context_lintegral_mat,
+      vcovar_mat = GetOakesContextValue(posterior_context,"vcovar_mat"),
+      lambda_act_mat =
+        GetOakesContextValue(posterior_context,"lambda_act_mat"),
+      lambda_light_mat =
+        GetOakesContextValue(posterior_context,"lambda_light_mat"),
+      tobit = GetOakesContextValue(posterior_context,"tobit"),
+      period_len = GetOakesContextValue(posterior_context,"period_len"))
+  }
+
+  tran_score <- CalcOakesTransitionScoreFromPosterior(
+    params_tran_array = params$params_tran_array,
+    transition_weights = transition_weights,
+    vcovar_mat = GetOakesContextValue(posterior_context,"vcovar_mat"),
+    active_vcovar_inds = theta_pack$active_tran_vcovar_inds,
+    period_len = GetOakesContextValue(posterior_context,"period_len"),
+    sweights_vec = sweights_vec,
+    drop_nonfinite_weights = drop_nonfinite_transition_weights)
+  fill_score("transition",tran_score$score)
+  components$transition <- tran_score
+
+  emit_score <- CalcOakesEmissionScore(
+    alpha = GetOakesContextValue(posterior_context,"alpha"),
+    beta = GetOakesContextValue(posterior_context,"beta"),
+    pi_l = GetOakesContextValue(posterior_context,"pi_l"),
+    act = GetOakesContextValue(posterior_context,"act"),
+    light = GetOakesContextValue(posterior_context,"light"),
+    vcovar_mat = GetOakesContextValue(posterior_context,"vcovar_mat"),
+    emit_act = params$emit_act,
+    emit_light = params$emit_light,
+    corr_mat = params$corr_mat,
+    lod_act = GetOakesContextValue(posterior_context,"lod_act"),
+    lod_light = GetOakesContextValue(posterior_context,"lod_light"),
+    sweights_vec = sweights_vec)
+  fill_score("emission",emit_score$score)
+  components$emission <- emit_score
+
+  mix_idx <- which(parameter_map$block == "mixing")
+  if (length(mix_idx) > 0){
+    re_prob <- GetOakesContextValue(posterior_context,"re_prob",
+                                    required = FALSE)
+    if (is.null(re_prob)){
+      re_prob <- CalcProbRE(GetOakesContextValue(posterior_context,"alpha"),
+                            GetOakesContextValue(posterior_context,"pi_l"))
+    }
+
+    mix_score <- CalcOakesMixingH1(
+      nu_mat = params$nu_mat,
+      re_prob = re_prob,
+      nu_covar_mat = GetOakesContextValue(posterior_context,
+                                          "nu_covar_mat"),
+      sweights_vec)
+    fill_score("mixing",mix_score$score)
+    components$mixing <- mix_score
+  }
+
+  score <- score_full[long_idx]
+  if (!all(is.finite(score))){
+    warning("CalcLongitudinalOakesScore produced non-finite score entries")
+  }
+
+  if (return_components){
+    return(list(score = score,
+                components = components,
+                params = params,
+                parameter_map =
+                  theta_pack$parameter_map[long_idx,,drop = FALSE]))
+  }
+
+  score
+}
+
+CalcTwoStageOakesMurphyTopel <- function(
+    theta_pack,data_context,long_idx,cox_fit_base,combined_covar_mat,
+    eps = 1e-5,progress = TRUE,
+    make_inactive_day_types_safe = TRUE){
+  theta <- theta_pack$theta
+  ValidateOakesThetaNaturalScale(theta,theta_pack,"theta")
+
+  if (any(theta_pack$parameter_map$block[long_idx] == "survival")){
+    stop("long_idx must not include survival parameters")
+  }
+  if (any(data_context$sweights_vec != 1)){
+    stop("CalcTwoStageOakesMurphyTopel currently supports only unit weights")
+  }
+
+  p <- length(long_idx)
+  n <- ncol(data_context$act)
+  gamma_hat <- stats::coef(cox_fit_base)
+  coef_names <- names(gamma_hat)
+  q <- length(gamma_hat)
+
+  H2_long <- matrix(NA_real_,nrow = p,ncol = p)
+  rownames(H2_long) <- names(theta)[long_idx]
+  colnames(H2_long) <- names(theta)[long_idx]
+
+  S1 <- matrix(NA_real_,nrow = n,ncol = p)
+  colnames(S1) <- names(theta)[long_idx]
+
+  D <- matrix(NA_real_,nrow = q,ncol = p)
+  rownames(D) <- coef_names
+  colnames(D) <- names(theta)[long_idx]
+
+  diagnostics <- theta_pack$parameter_map[long_idx,,drop = FALSE]
+  diagnostics$eps <- eps
+  diagnostics$plus_posterior_nonfinite <- NA_integer_
+  diagnostics$minus_posterior_nonfinite <- NA_integer_
+  diagnostics$plus_score_nonfinite <- NA_integer_
+  diagnostics$minus_score_nonfinite <- NA_integer_
+  diagnostics$plus_cox_nonfinite <- NA_integer_
+  diagnostics$minus_cox_nonfinite <- NA_integer_
+  diagnostics$H2_column_abs_sum <- NA_real_
+  diagnostics$S1_column_sum <- NA_real_
+  diagnostics$S1_column_norm <- NA_real_
+  diagnostics$D_column_abs_sum <- NA_real_
+  diagnostics$max_abs_re_prob_diff <- NA_real_
+
+  base_score <- CalcLongitudinalOakesScore(
+    theta = theta,
+    theta_pack = theta_pack,
+    posterior_context = RebuildLongitudinalPosteriorContext(
+      theta = theta,
+      theta_pack = theta_pack,
+      data_context = data_context,
+      make_inactive_day_types_safe = make_inactive_day_types_safe),
+    long_idx = long_idx)
+
+  for (k in seq_along(long_idx)){
+    j <- long_idx[[k]]
+    map_row <- theta_pack$parameter_map[j,,drop = FALSE]
+    if (progress){
+      message("Two-stage MT perturbation ",k,"/",length(long_idx),
+              " [",j,"] ",map_row$block,":",map_row$param_name)
+    }
+
+    theta_plus <- theta
+    theta_minus <- theta
+    theta_plus[j] <- theta_plus[j] + eps
+    theta_minus[j] <- theta_minus[j] - eps
+
+    ValidateOakesThetaNaturalScale(theta_plus,theta_pack,
+                                   paste0("theta_plus[",j,"]"))
+    ValidateOakesThetaNaturalScale(theta_minus,theta_pack,
+                                   paste0("theta_minus[",j,"]"))
+
+    context_plus <- RebuildLongitudinalPosteriorContext(
+      theta = theta_plus,
+      theta_pack = theta_pack,
+      data_context = data_context,
+      make_inactive_day_types_safe = make_inactive_day_types_safe)
+    context_minus <- RebuildLongitudinalPosteriorContext(
+      theta = theta_minus,
+      theta_pack = theta_pack,
+      data_context = data_context,
+      make_inactive_day_types_safe = make_inactive_day_types_safe)
+
+    score_plus <- CalcLongitudinalOakesScore(
+      theta = theta,
+      theta_pack = theta_pack,
+      posterior_context = context_plus,
+      long_idx = long_idx)
+    score_minus <- CalcLongitudinalOakesScore(
+      theta = theta,
+      theta_pack = theta_pack,
+      posterior_context = context_minus,
+      long_idx = long_idx)
+    H2_long[,k] <- (score_plus - score_minus) / (2 * eps)
+
+    ll_plus <- CalcLikelihoodIndVec(context_plus$alpha,context_plus$pi_l)
+    ll_minus <- CalcLikelihoodIndVec(context_minus$alpha,
+                                     context_minus$pi_l)
+    S1[,k] <- (ll_plus - ll_minus) / (2 * eps)
+
+    fit_plus <- FitTwoStageCox(
+      re_prob = context_plus$re_prob,
+      survival_context = data_context$survival_context,
+      combined_covar_mat = combined_covar_mat,
+      ties = "breslow",
+      init = gamma_hat,
+      expected_coef_names = coef_names)
+    fit_minus <- FitTwoStageCox(
+      re_prob = context_minus$re_prob,
+      survival_context = data_context$survival_context,
+      combined_covar_mat = combined_covar_mat,
+      ties = "breslow",
+      init = gamma_hat,
+      expected_coef_names = coef_names)
+
+    coef_plus <- stats::coef(fit_plus)
+    coef_minus <- stats::coef(fit_minus)
+    D[,k] <- (coef_plus - coef_minus) / (2 * eps)
+
+    plus_post_diag <- DiagnosePosteriorContext(context_plus)
+    minus_post_diag <- DiagnosePosteriorContext(context_minus)
+    diagnostics$plus_posterior_nonfinite[k] <-
+      sum(plus_post_diag$nonfinite)
+    diagnostics$minus_posterior_nonfinite[k] <-
+      sum(minus_post_diag$nonfinite)
+    diagnostics$plus_score_nonfinite[k] <- sum(!is.finite(score_plus))
+    diagnostics$minus_score_nonfinite[k] <- sum(!is.finite(score_minus))
+    diagnostics$plus_cox_nonfinite[k] <- sum(!is.finite(coef_plus))
+    diagnostics$minus_cox_nonfinite[k] <- sum(!is.finite(coef_minus))
+    diagnostics$H2_column_abs_sum[k] <- sum(abs(H2_long[,k]),na.rm = TRUE)
+    diagnostics$S1_column_sum[k] <- sum(S1[,k],na.rm = TRUE)
+    diagnostics$S1_column_norm[k] <- sqrt(sum(S1[,k]^2,na.rm = TRUE))
+    diagnostics$D_column_abs_sum[k] <- sum(abs(D[,k]),na.rm = TRUE)
+    diagnostics$max_abs_re_prob_diff[k] <-
+      max(abs(context_plus$re_prob - context_minus$re_prob),na.rm = TRUE)
+  }
+
+  list(H2_long = H2_long,
+       hessian = H2_long,
+       S1 = S1,
+       D = D,
+       base_score = base_score,
+       diagnostics = diagnostics,
+       eps = eps,
+       long_idx = long_idx,
+       parameter_map = theta_pack$parameter_map[long_idx,,drop = FALSE])
+}
+
 DiagnosePosteriorContext <- function(posterior_context){
   alpha_vec <- unlist(posterior_context$alpha)
   beta_vec <- unlist(posterior_context$beta)

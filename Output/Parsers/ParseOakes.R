@@ -8,7 +8,8 @@ output_file <- if (length(args) >= 2) args[[2]] else file.path("Output","parse_o
 Z_95 <- 1.96
 
 SAVED_SECTION_SLOT <- c(true_params = 1, est_params = 2, settings = 7)
-PARAM_SLOT <- c(beta_vec = 7, beta_se = 17)
+PARAM_SLOT <- c(beta_vec = 7, beta_age = 8, surv_coef = 8,
+                beta_se = 17)
 
 is_scalar <- function(x){
   is.atomic(x) && length(x) == 1 && is.null(dim(x))
@@ -137,12 +138,16 @@ get_model_type <- function(to_save){
 classify_file <- function(to_save){
   model_type <- get_model_type(to_save)
   has_oakes <- !is.null(to_save[["oakes"]])
+  has_murphy_topel <- !is.null(to_save[["murphy_topel"]])
 
   if (identical(model_type,"joint") && has_oakes){
     return("joint_oakes")
   }
   if (identical(model_type,"joint") && !has_oakes){
     return("joint_jmhmm")
+  }
+  if (identical(model_type,"two_stage") && has_murphy_topel){
+    return("two_stage_murphy_topel")
   }
   if (identical(model_type,"two_stage")){
     return("two_stage_jmhmm")
@@ -175,6 +180,10 @@ get_oakes_baseline_mode <- function(to_save,file_name){
 get_diagnostics <- function(to_save,file_type){
   if (file_type == "joint_oakes" && !is.null(to_save[["oakes"]])){
     return(to_save[["oakes"]][["diagnostics"]])
+  }
+  if (file_type == "two_stage_murphy_topel" &&
+      !is.null(to_save[["murphy_topel"]])){
+    return(to_save[["murphy_topel"]][["diagnostics"]])
   }
   to_save[["diagnostics"]]
 }
@@ -235,6 +244,8 @@ file_metadata <- function(file,to_save,file_type,est_beta){
     model_type = get_model_type(to_save),
     se_method = if (file_type == "joint_oakes"){
       "oakes_schur"
+    } else if (file_type == "two_stage_murphy_topel"){
+      "murphy_topel"
     } else if (file_type == "two_stage_jmhmm"){
       "non_oakes_beta_se"
     } else {
@@ -266,22 +277,114 @@ file_metadata <- function(file,to_save,file_type,est_beta){
   )
 }
 
-get_class_beta_se <- function(to_save,file_type){
+get_survival_se_methods <- function(to_save,file_type){
   if (file_type == "joint_oakes"){
     se <- to_save[["oakes"]][["survival_schur"]][["se_surv"]]
-    return(suppressWarnings(as.numeric(se)))
+    return(list(oakes_schur = suppressWarnings(as.numeric(se))))
+  }
+
+  if (file_type == "two_stage_murphy_topel"){
+    mt <- to_save[["murphy_topel"]]
+    return(list(two_stage_naive =
+                  suppressWarnings(as.numeric(mt[["se_naive"]])),
+                two_stage_delta =
+                  suppressWarnings(as.numeric(mt[["se_delta"]])),
+                two_stage_murphy_topel =
+                  suppressWarnings(as.numeric(mt[["se_MT"]]))))
   }
 
   est_params <- get_section(to_save,"est_params",SAVED_SECTION_SLOT[["est_params"]])
   se <- get_param(est_params,"beta_se",PARAM_SLOT[["beta_se"]])
-  suppressWarnings(as.numeric(se))
+  list(non_oakes_beta_se = suppressWarnings(as.numeric(se)))
+}
+
+make_gamma_from_saved <- function(beta_vec,surv_coef,fit_mix_num){
+  beta_vec <- suppressWarnings(as.numeric(beta_vec))
+  out <- numeric(0)
+  out <- c(out,suppressWarnings(as.numeric(surv_coef[[1]][[1]])))
+  if (fit_mix_num > 1){
+    out <- c(out,beta_vec[2:fit_mix_num])
+  }
+  if (length(surv_coef) > 1){
+    for (surv_covar_ind in 2:length(surv_coef)){
+      coef_vec <- suppressWarnings(as.numeric(surv_coef[[surv_covar_ind]]))
+      if (length(coef_vec) > 1){
+        out <- c(out,coef_vec[-1])
+      }
+    }
+  }
+  out
+}
+
+make_simulation_gamma_truth <- function(true_params,fit_mix_num,gamma_len,
+                                        fallback_truth = NULL){
+  if (!is.null(fallback_truth) && length(fallback_truth) == gamma_len){
+    return(suppressWarnings(as.numeric(fallback_truth)))
+  }
+
+  true_beta <- suppressWarnings(as.numeric(
+    get_param(true_params,"beta_vec",PARAM_SLOT[["beta_vec"]])
+  ))
+  beta_age <- suppressWarnings(as.numeric(
+    get_param(true_params,"beta_age",PARAM_SLOT[["beta_age"]])
+  ))
+
+  truth <- rep(NA_real_,gamma_len)
+  if (gamma_len >= 1){
+    truth[[1]] <- beta_age[[1]]
+  }
+  if (fit_mix_num > 1 && gamma_len >= fit_mix_num){
+    truth[2:fit_mix_num] <- true_beta[2:fit_mix_num]
+  }
+  if (gamma_len > fit_mix_num){
+    extra_n <- gamma_len - fit_mix_num
+    beta_covar_sim <- c(.6,-.5)
+    truth[(fit_mix_num + 1):gamma_len] <-
+      beta_covar_sim[seq_len(min(extra_n,length(beta_covar_sim)))]
+  }
+
+  truth
+}
+
+get_mt_diag_flag <- function(to_save,name){
+  mt <- to_save[["murphy_topel"]]
+  if (is.null(mt)){
+    return(NA)
+  }
+  diagnostics <- mt[["diagnostics"]]
+  if (is.null(diagnostics)){
+    return(NA)
+  }
+  value <- diagnostics[[name]]
+  if (is.null(value)){
+    return(NA)
+  }
+  value
+}
+
+get_mt_repair_field <- function(to_save,repair_name,field){
+  repair <- get_mt_diag_flag(to_save,repair_name)
+  if (is.null(repair) || length(repair) == 0 ||
+      (is.atomic(repair) && length(repair) == 1 && is.na(repair))){
+    return(NA)
+  }
+  scalar_or_na(repair[[field]])
+}
+
+get_mt_increment_diag <- function(to_save,name){
+  mt <- to_save[["murphy_topel"]]
+  if (is.null(mt) || is.null(mt[[name]])){
+    return(NA_real_)
+  }
+  suppressWarnings(as.numeric(diag(mt[[name]])))
 }
 
 parse_class_beta_rows <- function(file,to_save,file_type){
   if (file_type == "joint_jmhmm"){
     stop("joint_jmhmm_skipped_use_oakes_file")
   }
-  if (!file_type %in% c("joint_oakes","two_stage_jmhmm")){
+  if (!file_type %in% c("joint_oakes","two_stage_jmhmm",
+                        "two_stage_murphy_topel")){
     stop("unsupported_file_type: ",file_type)
   }
 
@@ -296,7 +399,7 @@ parse_class_beta_rows <- function(file,to_save,file_type){
   est_beta <- suppressWarnings(as.numeric(
     get_param(est_params,"beta_vec",PARAM_SLOT[["beta_vec"]])
   ))
-  se <- get_class_beta_se(to_save,file_type)
+  se_methods <- get_survival_se_methods(to_save,file_type)
 
   meta <- file_metadata(file,to_save,file_type,est_beta)
   fit_mix_num <- meta$fit_mix_num[[1]]
@@ -310,25 +413,129 @@ parse_class_beta_rows <- function(file,to_save,file_type){
   if (length(true_beta) < fit_mix_num){
     stop("True beta_vec is shorter than fit_mix_num")
   }
-  if (length(se) < fit_mix_num){
-    stop("SE vector is shorter than fit_mix_num")
-  }
 
   class_indices <- 2:fit_mix_num
-  rows <- meta[rep(1,length(class_indices)),,drop = FALSE]
-  rows$class_index <- class_indices
-  rows$param_name <- paste0("class_",class_indices)
-  rows$estimate <- est_beta[class_indices]
-  rows$truth <- true_beta[class_indices]
-  rows$se <- se[class_indices]
-  rows$bias <- rows$estimate - rows$truth
-  rows$ci_lower <- rows$estimate - Z_95 * rows$se
-  rows$ci_upper <- rows$estimate + Z_95 * rows$se
-  rows$ci_width <- rows$ci_upper - rows$ci_lower
-  rows$covered <- rows$truth >= rows$ci_lower & rows$truth <= rows$ci_upper
-  rows$valid <- is.finite(rows$estimate) & is.finite(rows$truth) &
-    is.finite(rows$se)
-  rows
+  row_list <- lapply(names(se_methods),function(method_name){
+    se <- se_methods[[method_name]]
+    if (length(se) < fit_mix_num){
+      stop("SE vector is shorter than fit_mix_num")
+    }
+
+    rows <- meta[rep(1,length(class_indices)),,drop = FALSE]
+    rows$se_method <- method_name
+    rows$class_index <- class_indices
+    rows$param_name <- paste0("class_",class_indices)
+    rows$estimate <- est_beta[class_indices]
+    rows$truth <- true_beta[class_indices]
+    rows$se <- se[class_indices]
+    rows$bias <- rows$estimate - rows$truth
+    rows$ci_lower <- rows$estimate - Z_95 * rows$se
+    rows$ci_upper <- rows$estimate + Z_95 * rows$se
+    rows$ci_width <- rows$ci_upper - rows$ci_lower
+    rows$covered <- rows$truth >= rows$ci_lower & rows$truth <= rows$ci_upper
+    rows$valid <- is.finite(rows$estimate) & is.finite(rows$truth) &
+      is.finite(rows$se)
+
+    delta_diag <- get_mt_increment_diag(to_save,"delta_increment")
+    cross_diag <- get_mt_increment_diag(to_save,"cross_increment")
+    rows$delta_increment_diag <- if (length(delta_diag) >= fit_mix_num){
+      delta_diag[class_indices]
+    } else {
+      NA_real_
+    }
+    rows$cross_increment_diag <- if (length(cross_diag) >= fit_mix_num){
+      cross_diag[class_indices]
+    } else {
+      NA_real_
+    }
+    rows$I1_repaired <- get_mt_repair_field(to_save,"I1_repair",
+                                            "repaired")
+    rows$V_MT_repaired <- get_mt_repair_field(to_save,"V_MT_repair",
+                                              "repaired")
+
+    rows
+  })
+
+  do.call(rbind,row_list)
+}
+
+parse_survival_coef_rows <- function(file,to_save,file_type){
+  if (file_type == "joint_jmhmm"){
+    stop("joint_jmhmm_skipped_use_oakes_file")
+  }
+  if (!file_type %in% c("joint_oakes","two_stage_jmhmm",
+                        "two_stage_murphy_topel")){
+    stop("unsupported_file_type: ",file_type)
+  }
+
+  true_params <- get_section(to_save,"true_params",
+                             SAVED_SECTION_SLOT[["true_params"]])
+  est_params <- get_section(to_save,"est_params",
+                            SAVED_SECTION_SLOT[["est_params"]])
+
+  est_beta <- get_param(est_params,"beta_vec",PARAM_SLOT[["beta_vec"]])
+  est_surv_coef <- get_param(est_params,"surv_coef",
+                             PARAM_SLOT[["surv_coef"]])
+  meta <- file_metadata(file,to_save,file_type,
+                        suppressWarnings(as.numeric(est_beta)))
+  fit_mix_num <- meta$fit_mix_num[[1]]
+  estimate <- make_gamma_from_saved(est_beta,est_surv_coef,fit_mix_num)
+  se_methods <- get_survival_se_methods(to_save,file_type)
+
+  mt_truth <- if (file_type == "two_stage_murphy_topel"){
+    to_save[["murphy_topel"]][["coefficient_truth"]]
+  } else {
+    NULL
+  }
+  truth <- make_simulation_gamma_truth(true_params,fit_mix_num,
+                                       length(estimate),mt_truth)
+  param_names <- if (file_type == "two_stage_murphy_topel" &&
+                     !is.null(to_save[["murphy_topel"]][["coefficient_names"]])){
+    to_save[["murphy_topel"]][["coefficient_names"]]
+  } else {
+    c("age",
+      if (fit_mix_num > 1) paste0("class_",2:fit_mix_num),
+      if (length(estimate) > fit_mix_num) {
+        paste0("surv_covar_",seq_len(length(estimate) - fit_mix_num))
+      })
+  }
+  param_names <- as.character(param_names)
+  if (length(param_names) != length(estimate)){
+    param_names <- paste0("gamma_",seq_along(estimate))
+  }
+
+  row_list <- lapply(names(se_methods),function(method_name){
+    se <- se_methods[[method_name]]
+    if (length(se) < length(estimate)){
+      stop("SE vector is shorter than survival coefficient vector")
+    }
+    coef_indices <- seq_along(estimate)
+    rows <- meta[rep(1,length(coef_indices)),,drop = FALSE]
+    rows$se_method <- method_name
+    rows$coef_index <- coef_indices
+    rows$param_name <- param_names
+    rows$estimate <- estimate
+    rows$truth <- truth
+    rows$se <- se[coef_indices]
+    rows$bias <- rows$estimate - rows$truth
+    rows$ci_lower <- rows$estimate - Z_95 * rows$se
+    rows$ci_upper <- rows$estimate + Z_95 * rows$se
+    rows$ci_width <- rows$ci_upper - rows$ci_lower
+    rows$covered <- rows$truth >= rows$ci_lower & rows$truth <= rows$ci_upper
+    rows$valid <- is.finite(rows$estimate) & is.finite(rows$truth) &
+      is.finite(rows$se)
+    rows$delta_increment_diag <- get_mt_increment_diag(
+      to_save,"delta_increment")[coef_indices]
+    rows$cross_increment_diag <- get_mt_increment_diag(
+      to_save,"cross_increment")[coef_indices]
+    rows$I1_repaired <- get_mt_repair_field(to_save,"I1_repair",
+                                            "repaired")
+    rows$V_MT_repaired <- get_mt_repair_field(to_save,"V_MT_repair",
+                                              "repaired")
+    rows
+  })
+
+  do.call(rbind,row_list)
 }
 
 summarize_class_beta <- function(rows){
@@ -354,6 +561,7 @@ summarize_class_beta <- function(rows){
       out$coverage <- NA_real_
       out$mean_bias <- NA_real_
       out$median_bias <- NA_real_
+      out$empirical_sd <- NA_real_
       out$rmse <- NA_real_
       out$mean_se <- NA_real_
       out$median_se <- NA_real_
@@ -362,10 +570,26 @@ summarize_class_beta <- function(rows){
       out$coverage <- mean(valid_dat$covered)
       out$mean_bias <- mean(valid_dat$bias)
       out$median_bias <- median(valid_dat$bias)
+      out$empirical_sd <- stats::sd(valid_dat$estimate)
       out$rmse <- sqrt(mean(valid_dat$bias^2))
       out$mean_se <- mean(valid_dat$se)
       out$median_se <- median(valid_dat$se)
       out$mean_ci_width <- mean(valid_dat$ci_width)
+    }
+
+    if ("delta_increment_diag" %in% names(dat)){
+      out$mean_delta_increment <- mean_finite(dat$delta_increment_diag)
+    }
+    if ("cross_increment_diag" %in% names(dat)){
+      out$mean_cross_increment <- mean_finite(dat$cross_increment_diag)
+    }
+    if ("I1_repaired" %in% names(dat)){
+      repaired <- suppressWarnings(as.numeric(dat$I1_repaired))
+      out$I1_repair_rate <- mean_finite(repaired)
+    }
+    if ("V_MT_repaired" %in% names(dat)){
+      repaired <- suppressWarnings(as.numeric(dat$V_MT_repaired))
+      out$V_MT_repair_rate <- mean_finite(repaired)
     }
 
     as.data.frame(out,check.names = FALSE,stringsAsFactors = FALSE)
@@ -381,7 +605,8 @@ summarize_resources <- function(file_inventory){
     return(data.frame())
   }
 
-  keep <- file_inventory$file_type %in% c("joint_oakes","two_stage_jmhmm")
+  keep <- file_inventory$file_type %in% c("joint_oakes","two_stage_jmhmm",
+                                          "two_stage_murphy_topel")
   data <- file_inventory[keep,,drop = FALSE]
   if (nrow(data) == 0){
     return(data.frame())
@@ -462,6 +687,7 @@ files <- list.files(input_root,pattern = "[.]rda$",full.names = TRUE,
 files <- files[!grepl("(^|[/\\\\])Inter",files)]
 
 row_list <- list()
+survival_row_list <- list()
 inventory_list <- list()
 error_list <- list()
 
@@ -504,6 +730,24 @@ for (file in files){
   if (!is.null(parsed)){
     row_list[[length(row_list) + 1L]] <- parsed
   }
+
+  survival_parsed <- tryCatch(
+    parse_survival_coef_rows(file,to_save,file_type),
+    error = function(e){
+      error_list[[length(error_list) + 1L]] <<- data.frame(
+        file = normalizePath(file,mustWork = TRUE),
+        file_name = basename(file),
+        file_type = file_type,
+        reason = paste("survival_coef:",conditionMessage(e)),
+        stringsAsFactors = FALSE
+      )
+      NULL
+    }
+  )
+
+  if (!is.null(survival_parsed)){
+    survival_row_list[[length(survival_row_list) + 1L]] <- survival_parsed
+  }
 }
 
 class_beta_long <- if (length(row_list) > 0){
@@ -514,6 +758,15 @@ class_beta_long <- if (length(row_list) > 0){
 row.names(class_beta_long) <- NULL
 
 class_beta_summary <- summarize_class_beta(class_beta_long)
+
+survival_coef_long <- if (length(survival_row_list) > 0){
+  do.call(rbind,survival_row_list)
+} else {
+  data.frame()
+}
+row.names(survival_coef_long) <- NULL
+
+survival_coef_summary <- summarize_class_beta(survival_coef_long)
 
 file_inventory <- if (length(inventory_list) > 0){
   do.call(rbind,inventory_list)
@@ -536,6 +789,8 @@ row.names(parse_errors) <- NULL
 parsed <- list(
   class_beta_long = class_beta_long,
   class_beta_summary = class_beta_summary,
+  survival_coef_long = survival_coef_long,
+  survival_coef_summary = survival_coef_summary,
   file_inventory = file_inventory,
   resource_summary = resource_summary,
   parse_errors = parse_errors

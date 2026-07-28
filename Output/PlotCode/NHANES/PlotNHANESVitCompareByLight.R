@@ -9,7 +9,8 @@ wave_g_file <- file.path("Data","Wavedata_G.rda")
 wave_h_file <- file.path("Data","Wavedata_H.rda")
 output_prefix <- file.path("Output","Figures","nhanes_vit_compare_by_light")
 
-plot_ind <- 6001
+# plot_ind <- 4751
+plot_ind <- 1432
 window_start_index <- 65
 window_length <- 96
 
@@ -232,6 +233,20 @@ window_index <- window_start_index + seq_len(window_length) - 1
 time_start <- as.POSIXct("2024-01-01 16:00:00",tz = "UTC")
 time_vec <- time_start + (seq_len(window_length) - 1) * 15 * 60
 
+diff_local_index <- which(
+  full_decode[window_index] != activity_only_decode[window_index]
+)
+if (length(diff_local_index) > 0){
+  x_axis_padding <- 7
+  x_axis_start_index <- max(1,min(diff_local_index) - x_axis_padding)
+  x_axis_end_index <- min(window_length,max(diff_local_index) + x_axis_padding)
+} else {
+  x_axis_start_index <- 1
+  x_axis_end_index <- window_length
+}
+x_axis_limits <- time_vec[c(x_axis_start_index,x_axis_end_index)]
+x_axis_breaks <- seq(x_axis_limits[[1]],x_axis_limits[[2]],by = "2 hours")
+
 plot_data <- function(measure_name,prediction_name,observed,decode,other_decode){
   data.frame(
     time = time_vec,
@@ -332,8 +347,8 @@ make_panel <- function(measure_name,prediction_name,tag_title){
       drop = FALSE
     ) +
     scale_x_datetime(
-      breaks = seq(time_start,time_start + 24 * 60 * 60,by = 4 * 60 * 60),
-      limits = c(time_start,time_start + 24 * 60 * 60),
+      breaks = x_axis_breaks,
+      limits = x_axis_limits,
       date_labels = "%H:%M",
       expand = c(0,0),
       name = "Time"

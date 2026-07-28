@@ -15,8 +15,8 @@ default_settings <- list(
   # Command-line defaults used when not running through bash/slurm.
   fit_mix_num = 5,
   true_mix_num = 5, # set to  NA_real_ to match fit_mix_num by default
-  model_type = "joint", # "joint", "two_stage"
-  data_source = "nhanes", #"nhanes" or "simulation"
+  model_type = "two_stage", # "joint", "two_stage"
+  data_source = "simulation", #"nhanes" or "simulation"
   run_bootstrap = FALSE,
   init_jitter_scale = 0.00,
   run_leave_one_out_cv = FALSE,

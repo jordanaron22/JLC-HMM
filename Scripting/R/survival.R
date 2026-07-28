@@ -341,6 +341,78 @@ CalcBetaManual <- function(beta_surv_coef,surv_covar_risk_vec,stop_crit,
 
 RemFirCol <- function(x){return(x[,-1])}
 
+FitTwoStageCox <- function(re_prob,survival_context,combined_covar_mat,
+                           ties = "breslow",init = NULL,
+                           expected_coef_names = NULL){
+  if (!ties %in% c("breslow","efron","exact")){
+    stop("ties must be one of breslow, efron, or exact")
+  }
+
+  re_prob <- as.matrix(re_prob)
+  n <- length(survival_context$surv_time)
+  if (!all(dim(re_prob) == c(n,ncol(re_prob)))){
+    stop("re_prob must have one row per survival observation")
+  }
+  if (length(survival_context$surv_event) != n ||
+      length(survival_context$surv_covar[[1]]) != n ||
+      length(survival_context$sweights_vec) != n){
+    stop("survival_context entries must have one row per survival observation")
+  }
+
+  surv_data <- data.frame(time = survival_context$surv_time,
+                          status = survival_context$surv_event,
+                          age = survival_context$surv_covar[[1]])
+
+  surv_data <- cbind(surv_data,re_prob,combined_covar_mat)
+  if (ncol(surv_data) < 4){
+    stop("two-stage Cox data must include at least one class probability")
+  }
+  colnames(surv_data)[4] <- "toRem"
+
+  if (nrow(surv_data) != n){
+    stop("two-stage Cox data row count changed during construction")
+  }
+
+  if (!is.null(init)){
+    init <- as.numeric(init)
+  }
+
+  cox_args <- list(
+    formula = survival::Surv(time,status) ~ . - toRem,
+    data = surv_data,
+    weights = survival_context$sweights_vec,
+    ties = ties,
+    x = TRUE,
+    y = TRUE,
+    model = TRUE,
+    robust = FALSE
+  )
+  if (!is.null(init)){
+    cox_args$init <- init
+  }
+
+  fit <- do.call(survival::coxph,cox_args)
+
+  if (!is.null(fit$na.action) && length(fit$na.action) > 0){
+    stop("FitTwoStageCox omitted rows; missing-data handling is unsupported")
+  }
+  if (is.null(fit$model) || nrow(fit$model) != n){
+    stop("FitTwoStageCox model frame does not match the input row count")
+  }
+
+  fit_coef <- stats::coef(fit)
+  if (any(is.na(fit_coef)) || any(!is.finite(fit_coef))){
+    stop("FitTwoStageCox returned aliased, missing, or nonfinite coefficients")
+  }
+
+  if (!is.null(expected_coef_names) &&
+      !identical(names(fit_coef),expected_coef_names)){
+    stop("FitTwoStageCox coefficient order does not match the expected order")
+  }
+
+  fit
+}
+
 #Calculates beta, manual LM for JM, standard Cox for 2 stage
 CalcBeta <- function(beta_surv_coef, combined_covar_mat,surv_covar_risk_vec,
                      incl_surv, survival_context, surv_coef_len, fit_mix_num,
@@ -410,19 +482,11 @@ CalcBeta <- function(beta_surv_coef, combined_covar_mat,surv_covar_risk_vec,
     )
   }
 
-
-
-
-
-  surv_data <- data.frame(time = survival_context$surv_time,
-                          status = survival_context$surv_event,
-                          age = survival_context$surv_covar[[1]])
-
-  surv_data <- cbind(surv_data,survival_context$re_prob,combined_covar_mat)
-  colnames(surv_data)[4] <- "toRem"
-
-  fit <- coxph(Surv(time, status) ~ .  - toRem, data = surv_data, weights = survival_context$sweights_vec, ties = 'breslow')
-  beta_surv_coef_new <- fit$coefficients
+  fit <- FitTwoStageCox(re_prob = survival_context$re_prob,
+                        survival_context = survival_context,
+                        combined_covar_mat = combined_covar_mat,
+                        ties = "breslow")
+  beta_surv_coef_new <- stats::coef(fit)
   se <- sqrt(diag(fit$var))
 
   return(list(beta_surv_coef_new,se))

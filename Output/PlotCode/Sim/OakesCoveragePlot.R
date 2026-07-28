@@ -1,15 +1,15 @@
-add_local_lib <- function(path){
-  if (dir.exists(path)){
-    .libPaths(unique(c(normalizePath(path,winslash = "/",mustWork = TRUE),
-                       .libPaths())))
-  }
-}
-
-for (lib_path in c(".Rlibrary","Rlib")){
-  add_local_lib(lib_path)
-}
+#!/usr/bin/env Rscript
 
 library(ggplot2)
+
+input_file <- file.path("Output","parse_oakes_results.rds")
+scenario_output_prefix <- file.path(
+  "Output","Figures","sim_oakes_scenario_coverage"
+)
+class_output_prefix <- file.path(
+  "Output","Figures","sim_oakes_class_beta_coverage"
+)
+
 
 title_case <- function(x){
   paste0(toupper(substr(x,1,1)),substr(x,2,nchar(x)))
@@ -23,15 +23,10 @@ make_model_label <- function(model_type){
   ifelse(model_type == "joint","Joint Oakes","Two-Stage H1")
 }
 
-x <- readRDS("Output/parse_oakes_results.rds")
+
+x <- readRDS(input_file)
 
 cov_summary <- x$class_beta_summary
-
-cov_summary[
-  , c("model_type", "se_method", "simulation_days", "num_people",
-      "emission_overlap", "param_name", "n_valid", "coverage",
-      "mean_bias", "rmse", "median_se")
-]
 
 wide_cov <- reshape(
   cov_summary[
@@ -48,14 +43,6 @@ wide_cov <- reshape(
 wide_cov$coverage_diff_joint_minus_two_stage <-
   wide_cov$coverage.joint - wide_cov$coverage.two_stage
 
-wide_cov[
-  , c("simulation_days", "emission_overlap", "param_name",
-      "coverage.joint", "coverage.two_stage",
-      "coverage_diff_joint_minus_two_stage",
-      "rmse.joint", "rmse.two_stage",
-      "median_se.joint", "median_se.two_stage")
-]
-
 scenario_cov <- aggregate(
   cbind(
     coverage.joint,
@@ -69,11 +56,6 @@ scenario_cov <- aggregate(
   data = wide_cov,
   FUN = function(x) mean(x,na.rm = TRUE)
 )
-
-scenario_cov
-
-
-############################
 
 make_coverage_plot_data <- function(wide_data){
   joint_data <- wide_data[,c("simulation_days","emission_overlap",
@@ -116,17 +98,19 @@ scenario_coverage_plot <- ggplot(
   scenario_plot_data,
   aes(x = days_label,y = coverage,fill = model_type_label)
 ) +
-  geom_col(position = position_dodge(width = 0.8),width = 0.7) +
+  geom_col(position = position_dodge(width = 0.8),width = 0.7,
+           color = "black") +
   geom_hline(yintercept = 0.95,linetype = "dashed",color = "gray35") +
   facet_grid(rows = vars(overlap_label)) +
   coord_cartesian(ylim = c(0,1)) +
+  scale_fill_viridis_d(end = .85,name = "Model") +
   labs(x = "Simulation Days",
        y = "Coverage",
        fill = "Model",
        title = "Average Survival Class-Beta Coverage") +
   theme_bw()
 
-scenario_coverage_plot
+print(scenario_coverage_plot)
 
 make_class_coverage_plot_data <- function(wide_data){
   id_cols <- c("simulation_days","emission_overlap","param_name")
@@ -174,24 +158,32 @@ class_coverage_plot <- ggplot(
   class_plot_data,
   aes(x = param_label,y = coverage,fill = model_type_label)
 ) +
-  geom_col(position = position_dodge(width = 0.8),width = 0.7) +
+  geom_col(position = position_dodge(width = 0.8),width = 0.7,
+           color = "black") +
   geom_hline(yintercept = 0.95,linetype = "dashed",color = "gray35") +
   facet_grid(rows = vars(overlap_label),cols = vars(days_label)) +
   coord_cartesian(ylim = c(0,1)) +
+  scale_fill_viridis_d(end = .85,name = "Model") +
   labs(x = "Latent Class Survival Coefficient",
        y = "Coverage",
        fill = "Model",
        title = "Survival Class-Beta Coverage by Coefficient") +
   theme_bw()
 
-class_coverage_plot
+print(class_coverage_plot)
 
-# dir.create(file.path("Output","Plots"),recursive = TRUE,showWarnings = FALSE)
-# ggsave("oakes_scenario_coverage.png",
-#        plot = scenario_coverage_plot,
-#        path = file.path("Output","Plots"),
-#        width = 10,height = 6,dpi = 300)
-# ggsave("oakes_class_beta_coverage.png",
-#        plot = class_coverage_plot,
-#        path = file.path("Output","Plots"),
-#        width = 12,height = 7,dpi = 300)
+dir.create(dirname(scenario_output_prefix),recursive = TRUE,showWarnings = FALSE)
+ggsave(
+  paste0(scenario_output_prefix,".png"),
+  scenario_coverage_plot,
+  width = 10,
+  height = 6,
+  dpi = 300
+)
+ggsave(
+  paste0(class_output_prefix,".png"),
+  class_coverage_plot,
+  width = 12,
+  height = 7,
+  dpi = 300
+)

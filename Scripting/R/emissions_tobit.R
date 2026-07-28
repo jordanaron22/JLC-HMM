@@ -216,6 +216,22 @@ PrepareCase2Grouping <- function(
   )
 }
 
+EmptyEmitCaseIndices <- function(lod_light = NULL) {
+  list(
+    case1 = integer(0),
+    case2 = integer(0),
+    case3 = integer(0),
+    case4 = integer(0),
+    case5 = integer(0),
+    case6 = integer(0),
+    case7 = integer(0),
+    case8 = integer(0),
+    case2_group = integer(0),
+    case2_unique_act = numeric(0),
+    case2_light_value = if (is.null(lod_light)) NA_real_ else lod_light
+  )
+}
+
 #above parameters are for debugging
 #calculates likelihood of emission dist
 #used in direct optimization
@@ -387,7 +403,8 @@ GetEmitLogLikeSubset <- function(emit_data, vcovar_ind) {
       index = integer(0),
       subject_index = integer(0),
       act = numeric(0),
-      light = numeric(0)
+      light = numeric(0),
+      case_indices = EmptyEmitCaseIndices()
     ))
   }
 
@@ -943,12 +960,16 @@ BuildEmitCaseCache <- function(
         )
 
         if (is.null(emit_subset$case_indices)) {
-          stop(
-            paste(
-              "Emission case indices are missing.",
-              "Recreate emit_data with lod_act and lod_light."
+          if (length(emit_subset$index) == 0L) {
+            emit_subset$case_indices <- EmptyEmitCaseIndices()
+          } else {
+            stop(
+              paste(
+                "Emission case indices are missing.",
+                "Recreate emit_data with lod_act and lod_light."
+              )
             )
-          )
+          }
         }
 
         log_weights_vec <- ExtractEmitWeightSubset(
@@ -1167,6 +1188,34 @@ CalcBivarCorrByCase <- function(
   )$minimum
 }
 
+CurrentEmissionParameterByCaseFunction <- function(
+    FUN,
+    mc_state,
+    re_ind,
+    vcovar_ind,
+    emit_act,
+    emit_light,
+    corr_mat
+) {
+  if (identical(FUN, CalcActMeanByCase)) {
+    return(emit_act[mc_state, 1L, re_ind, vcovar_ind])
+  }
+  if (identical(FUN, CalcActSigByCase)) {
+    return(emit_act[mc_state, 2L, re_ind, vcovar_ind])
+  }
+  if (identical(FUN, CalcLightMeanByCase)) {
+    return(emit_light[mc_state, 1L, re_ind, vcovar_ind])
+  }
+  if (identical(FUN, CalcLightSigByCase)) {
+    return(emit_light[mc_state, 2L, re_ind, vcovar_ind])
+  }
+  if (identical(FUN, CalcBivarCorrByCase)) {
+    return(corr_mat[re_ind, mc_state, vcovar_ind])
+  }
+
+  stop("Cannot infer current emission parameter for empty day type")
+}
+
 UpdateNormByCase <- function(
     FUN,
     mc_state,
@@ -1193,6 +1242,20 @@ UpdateNormByCase <- function(
         emit_data,
         vcovar_ind
       )
+
+      if (length(emit_subset$index) == 0L) {
+        opt_param_mat[re_ind, vcovar_ind] <-
+          CurrentEmissionParameterByCaseFunction(
+            FUN = FUN,
+            mc_state = mc_state,
+            re_ind = re_ind,
+            vcovar_ind = vcovar_ind,
+            emit_act = emit_act,
+            emit_light = emit_light,
+            corr_mat = corr_mat
+          )
+        next
+      }
 
       case_cache <- emit_case_cache[[mc_state]][[re_ind]][[vcovar_ind]]
 
