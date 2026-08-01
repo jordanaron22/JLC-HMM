@@ -17,16 +17,14 @@ ResourceLimit["1|5000|5|two_stage|high"]="5 5"
 ResourceLimit["3|5000|5|two_stage|high"]="16 10"
 ResourceLimit["7|5000|5|two_stage|high"]="52 20"
 
-ResourceLimit["1|5000|5|two_stage|low"]="1 4"
-
 ScenarioKeys=(
     "1|5000|5|two_stage|low"
-    # "3|5000|5|two_stage|low"
-    # "7|5000|5|two_stage|low"
+    "3|5000|5|two_stage|low"
+    "7|5000|5|two_stage|low"
 
-    # "1|5000|5|two_stage|high"
-    # "3|5000|5|two_stage|high"
-    # "7|5000|5|two_stage|high"
+    "1|5000|5|two_stage|high"
+    "3|5000|5|two_stage|high"
+    "7|5000|5|two_stage|high"
 )
 
 manifest_file="expected_two_stage_mt_jobs.tsv"
