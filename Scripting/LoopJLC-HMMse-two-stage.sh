@@ -2,7 +2,7 @@
 
 declare -A ResourceLimit
 
-array_start=100
+array_start=1
 array_end=100
 
 # key: simulation_days|num_people|fit_mix_num|model_type|emission_overlap

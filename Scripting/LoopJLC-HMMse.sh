@@ -3,7 +3,7 @@
 declare -A ResourceLimit
 
 array_start=1
-array_end=200
+array_end=100
 
 # key: simulation_days|num_people|fit_mix_num|model_type|emission_overlap
 # value: recommended_time_hours memory_limit_gb
