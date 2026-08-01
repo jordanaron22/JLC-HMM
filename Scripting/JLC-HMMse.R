@@ -57,6 +57,7 @@ for (module_file in c("constants.R","saved_results.R","validation.R",
                       "settings.R","params.R","transitions.R",
                       "emissions_tobit.R","forward_backward.R",
                       "oakes_info.R","data_simulation.R","helpers.R",
+                      "data_nhanes.R","analysis_data.R",
                       "survival.R","diagnostics.R")){
   source_jmhmm_module(module_file)
 }
@@ -177,6 +178,29 @@ get_simulated_hmm <- function(to_save,settings){
        regenerated = TRUE)
 }
 
+get_se_analysis_data <- function(to_save,est_params,settings){
+  if (settings$data_source == DATA_SOURCE[["simulation"]]){
+    simulated <- get_simulated_hmm(to_save,settings)
+    return(list(
+      analysis_data = MakeSimulationSEAnalysisData(
+        simulated$simulated_hmm
+      ),
+      data_regenerated = simulated$regenerated,
+      data_reconstructed = simulated$regenerated
+    ))
+  }
+
+  if (settings$data_source == DATA_SOURCE[["nhanes"]]){
+    return(list(
+      analysis_data = PrepareNHANESSEAnalysisData(settings,est_params),
+      data_regenerated = FALSE,
+      data_reconstructed = TRUE
+    ))
+  }
+
+  stop(paste("Unsupported SE data source:",settings$data_source))
+}
+
 repair_information_for_vcov <- function(I_obs_sym,
                                         parameter_map = NULL,
                                         rel_tol = 1e-5,
@@ -281,7 +305,7 @@ repair_information_for_vcov <- function(I_obs_sym,
 
 
 
-build_oakes_data <- function(simulated_hmm,est_params,settings,
+build_oakes_data <- function(analysis_data,est_params,settings,
                              survival_baseline_mode = "profiled"){
   if (!survival_baseline_mode %in% c("fixed","profiled")){
     stop("survival_baseline_mode must be fixed or profiled")
@@ -301,15 +325,16 @@ build_oakes_data <- function(simulated_hmm,est_params,settings,
   bline_vec <- get_saved_param(est_params,"bline_vec",required = FALSE)
   cbline_vec <- get_saved_param(est_params,"cbline_vec",required = FALSE)
 
-  act <- simulated_hmm$act
-  light <- simulated_hmm$light
-  vcovar_mat <- simulated_hmm$vcovar_mat
-  nu_covar_mat <- simulated_hmm$nu_covar_mat
-  surv_time <- simulated_hmm$survival$time
-  surv_event <- simulated_hmm$survival$event
-  surv_covar <- list(simulated_hmm$age_vec,
-                     Vec2Mat(simulated_hmm$surv_covar_sim))
-  sweights_vec <- rep(1, ncol(act))
+  act <- analysis_data$act
+  light <- analysis_data$light
+  vcovar_mat <- analysis_data$vcovar_mat
+  nu_covar_mat <- analysis_data$nu_covar_mat
+  surv_time <- analysis_data$surv_time
+  surv_event <- analysis_data$surv_event
+  surv_covar <- analysis_data$surv_covar
+  sweights_vec <- analysis_data$sweights_vec
+  lod_act <- analysis_data$lod_act
+  lod_light <- analysis_data$lod_light
 
   if (!settings$include_light){
     light <- matrix(NA,nrow = nrow(light),ncol = ncol(light))
@@ -321,6 +346,7 @@ build_oakes_data <- function(simulated_hmm,est_params,settings,
   validate_hmm_data(act,light,vcovar_mat)
   validate_survival_inputs(surv_time,surv_event,surv_covar,ncol(act))
   validate_re_prob(re_prob,ncol(act),settings$fit_mix_num)
+  ValidateSEAnalysisData(analysis_data,settings$fit_mix_num)
 
   survival_context <- make_survival_context(surv_time,surv_event,surv_covar,
                                             re_prob,settings$fit_mix_num,
@@ -353,8 +379,8 @@ build_oakes_data <- function(simulated_hmm,est_params,settings,
     data_context = list(act = act,
                         light = light,
                         vcovar_mat = vcovar_mat,
-                        lod_act = -5.809153,
-                        lod_light = -1.560658,
+                         lod_act = lod_act,
+                         lod_light = lod_light,
                         sweights_vec = sweights_vec,
                         lambda_act_mat = lambda_act_mat,
                         lambda_light_mat = lambda_light_mat,
@@ -561,7 +587,11 @@ survival_baseline_mode <- get_survival_baseline_mode(cli_args)
 print(paste("JLC-HMMse survival baseline mode:",
             survival_baseline_mode))
 
+
 input_file <- find_saved_model_file(settings$model_name)
+#Uncomment the following line if running locally
+# input_file <- find_saved_model_file("Data/JMHMMFitMix5Seed.rda")
+
 output_file <- make_oakes_output_file(input_file,survival_baseline_mode)
 to_save <- load_to_save(input_file)
 
@@ -574,29 +604,33 @@ to_save <- load_to_save(input_file)
 
 
 
-if (settings$data_source != DATA_SOURCE[["simulation"]]){
-  stop("JLC-HMMse currently supports only simulated data")
-}
 if (settings$model_type != "joint"){
-  stop("JLC-HMMse currently supports only joint simulated models")
+  stop("JLC-HMMse supports only joint models")
 }
 
-validate_saved_results(to_save,required_sections = c("true_params",
-                                                      "est_params",
-                                                      "settings"),
-                        source_name = input_file)
+required_sections <- c("est_params","settings")
+validate_saved_results(to_save,required_sections = required_sections,
+                       source_name = input_file)
 
 saved_settings <- get_saved_section(to_save,"settings",required = TRUE)
-for (field in c("sim_num","model_name","fit_mix_num","true_mix_num",
-                "simulation_days","num_people","emission_overlap")){
+settings_fields <- c("sim_num","model_name","fit_mix_num","model_type",
+                     "data_source","period_len","run_bootstrap",
+                     "run_leave_one_out_cv","target_weekday","weekend_only",
+                     "include_activity","include_light")
+if (settings$data_source == DATA_SOURCE[["simulation"]]){
+  settings_fields <- c(settings_fields,"true_mix_num","simulation_days",
+                       "num_people","emission_overlap")
+}
+for (field in settings_fields){
   if (!identical(settings[[field]],saved_settings[[field]])){
     stop(paste("Command-line settings do not match saved setting:",field))
   }
 }
 
 est_params <- get_saved_section(to_save,"est_params",required = TRUE)
-simulated <- get_simulated_hmm(to_save,settings)
-oakes_data <- build_oakes_data(simulated$simulated_hmm,est_params,
+analysis <- get_se_analysis_data(to_save,est_params,settings)
+analysis_data <- analysis$analysis_data
+oakes_data <- build_oakes_data(analysis_data,est_params,
                                 settings,survival_baseline_mode)
 params <- oakes_data$params
 data_context <- oakes_data$data_context
@@ -663,11 +697,17 @@ schur <- schur_survival(I_obs_sym,oakes_score$score,
                         theta_pack$parameter_map)
 
 to_save$oakes <- list(
+  variance_method = "weighted_model_based_oakes",
   settings = list(h2_eps = h2_eps,
                   survival_baseline_mode = survival_baseline_mode,
+                  variance_method = "weighted_model_based_oakes",
                   input_file = input_file,
                   output_file = output_file,
-                  data_regenerated = simulated$regenerated,
+                  data_source = settings$data_source,
+                  data_regenerated = analysis$data_regenerated,
+                  data_reconstructed = analysis$data_reconstructed,
+                  weight_summary =
+                    SummarizeSEWeights(data_context$sweights_vec),
                   profile_maxit = data_context$profile_maxit,
                   profile_tol = data_context$profile_tol,
                   profile_damping = data_context$profile_damping),

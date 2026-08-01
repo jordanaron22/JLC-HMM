@@ -1068,8 +1068,14 @@ CalcTwoStageOakesMurphyTopel <- function(
   if (any(theta_pack$parameter_map$block[long_idx] == "survival")){
     stop("long_idx must not include survival parameters")
   }
-  if (any(data_context$sweights_vec != 1)){
-    stop("CalcTwoStageOakesMurphyTopel currently supports only unit weights")
+  if (length(data_context$sweights_vec) != ncol(data_context$act)){
+    stop("CalcTwoStageOakesMurphyTopel requires one weight per participant")
+  }
+  if (any(!is.finite(data_context$sweights_vec))){
+    stop("CalcTwoStageOakesMurphyTopel weights contain nonfinite values")
+  }
+  if (any(data_context$sweights_vec <= 0)){
+    stop("CalcTwoStageOakesMurphyTopel weights must be strictly positive")
   }
 
   p <- length(long_idx)
@@ -1157,7 +1163,12 @@ CalcTwoStageOakesMurphyTopel <- function(
     ll_plus <- CalcLikelihoodIndVec(context_plus$alpha,context_plus$pi_l)
     ll_minus <- CalcLikelihoodIndVec(context_minus$alpha,
                                      context_minus$pi_l)
-    S1[,k] <- (ll_plus - ll_minus) / (2 * eps)
+    # CalcLikelihoodIndVec() deliberately returns the unweighted
+    # participant likelihood. Apply the same sample weight used by the
+    # stage-1 estimating objective exactly once to form its score
+    # contribution for the Murphy-Topel cross-stage covariance.
+    S1[,k] <- data_context$sweights_vec *
+      (ll_plus - ll_minus) / (2 * eps)
 
     fit_plus <- FitTwoStageCox(
       re_prob = context_plus$re_prob,

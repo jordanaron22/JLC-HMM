@@ -4,17 +4,38 @@ library(dplyr)
 library(forestploter)
 library(grid)
 
-jlcm_file <- file.path("Data","JMHMMFitMix5Seed.rda")
-two_stage_file <- file.path("Data","JMHMMNoSurvFitMix5Seed.rda")
+args <- commandArgs(trailingOnly = TRUE)
+jlcm_file <- if (length(args) >= 1){
+  args[[1]]
+} else {
+  file.path("Data","JMHMMFitMix5Seed_oakes_profiled_se.rda")
+}
+two_stage_file <- if (length(args) >= 2){
+  args[[2]]
+} else {
+  file.path(
+    "Data",
+    "JMHMMNoSurvFitMix5Seed_two_stage_murphy_topel_eps1e-05_se.rda"
+  )
+}
 output_prefix <- file.path("Output","Figures","nhanes_jm_vs_two_stage")
 
-read_class_hr <- function(model_file,model_label){
+read_class_hr <- function(model_file,model_label,se_method){
   load_env <- new.env()
   load(model_file,envir = load_env)
   est_params <- load_env$to_save$est_params
 
   beta_vec <- est_params$beta_vec
-  beta_se <- est_params$beta_se
+  beta_se <- if (se_method == "oakes"){
+    load_env$to_save$oakes$survival_schur$se_surv
+  } else if (se_method == "murphy_topel"){
+    load_env$to_save$murphy_topel$se_MT
+  } else {
+    stop("Unknown adjusted SE method: ",se_method)
+  }
+  if (is.null(beta_se)){
+    stop("Adjusted ",se_method," SEs are missing from ",model_file)
+  }
   mix_num <- length(beta_vec)
 
   class_coef <- beta_vec[2:mix_num]
@@ -45,7 +66,7 @@ class_size <- tabulate(
   nbins = length(to_save$est_params$beta_vec)
 )
 
-jlcm_df <- read_class_hr(jlcm_file,"JLCM") |>
+jlcm_df <- read_class_hr(jlcm_file,"JLCM","oakes") |>
   select(
     latent_class,
     jlcm_hr = hr,
@@ -54,7 +75,7 @@ jlcm_df <- read_class_hr(jlcm_file,"JLCM") |>
     jlcm_text = hr_text
   )
 
-two_stage_df <- read_class_hr(two_stage_file,"Two-Stage") |>
+two_stage_df <- read_class_hr(two_stage_file,"Two-Stage","murphy_topel") |>
   select(
     latent_class,
     two_stage_hr = hr,

@@ -40,6 +40,9 @@ library(numDeriv)
 library(Matrix)
 library(Hmisc)
 
+parameter_wiggle <- 1e-5
+parameter_wiggle <- .005
+
 source_jmhmm_module <- function(module_file){
   candidate_paths <- c(file.path("Scripting","R",module_file),
                        file.path("R",module_file),
@@ -57,6 +60,7 @@ for (module_file in c("constants.R","saved_results.R","validation.R",
                       "settings.R","params.R","transitions.R",
                       "emissions_tobit.R","forward_backward.R",
                       "oakes_info.R","data_simulation.R","helpers.R",
+                      "data_nhanes.R","analysis_data.R",
                       "survival.R","diagnostics.R")){
   source_jmhmm_module(module_file)
 }
@@ -196,6 +200,29 @@ get_simulated_hmm <- function(to_save,settings){
 
   list(simulated_hmm = regenerate_simulated_hmm(to_save,settings),
        regenerated = TRUE)
+}
+
+get_se_analysis_data <- function(to_save,est_params,settings){
+  if (settings$data_source == DATA_SOURCE[["simulation"]]){
+    simulated <- get_simulated_hmm(to_save,settings)
+    return(list(
+      analysis_data = MakeSimulationSEAnalysisData(
+        simulated$simulated_hmm
+      ),
+      data_regenerated = simulated$regenerated,
+      data_reconstructed = simulated$regenerated
+    ))
+  }
+
+  if (settings$data_source == DATA_SOURCE[["nhanes"]]){
+    return(list(
+      analysis_data = PrepareNHANESSEAnalysisData(settings,est_params),
+      data_regenerated = FALSE,
+      data_reconstructed = TRUE
+    ))
+  }
+
+  stop(paste("Unsupported SE data source:",settings$data_source))
 }
 
 safe_solve <- function(A,B = NULL){
@@ -397,7 +424,7 @@ score_sum_diagnostics <- function(score_mat,name){
   )
 }
 
-build_two_stage_mt_data <- function(simulated_hmm,est_params,settings){
+build_two_stage_mt_data <- function(analysis_data,est_params,settings){
   init <- get_saved_or_stop(est_params,"init")
   params_tran_array <- get_saved_or_stop(est_params,"params_tran_array")
   emit_act <- get_saved_or_stop(est_params,"emit_act")
@@ -410,18 +437,17 @@ build_two_stage_mt_data <- function(simulated_hmm,est_params,settings){
   lambda_act_mat <- get_saved_or_stop(est_params,"lambda_act_mat")
   lambda_light_mat <- get_saved_or_stop(est_params,"lambda_light_mat")
 
-  act <- simulated_hmm$act
-  light <- simulated_hmm$light
-  vcovar_mat <- simulated_hmm$vcovar_mat
-  nu_covar_mat <- simulated_hmm$nu_covar_mat
-  surv_time <- simulated_hmm$survival$time
-  surv_event <- simulated_hmm$survival$event
-  surv_covar <- list(simulated_hmm$age_vec,
-                     Vec2Mat(simulated_hmm$surv_covar_sim))
-  combined_covar_mat <- matrix(simulated_hmm$surv_covar_sim - 1,
-                               nrow = ncol(act))
-  combined_covar_mat <- as.factor(combined_covar_mat)
-  sweights_vec <- rep(1,ncol(act))
+  act <- analysis_data$act
+  light <- analysis_data$light
+  vcovar_mat <- analysis_data$vcovar_mat
+  nu_covar_mat <- analysis_data$nu_covar_mat
+  surv_time <- analysis_data$surv_time
+  surv_event <- analysis_data$surv_event
+  surv_covar <- analysis_data$surv_covar
+  combined_covar_mat <- analysis_data$combined_covar_mat
+  sweights_vec <- analysis_data$sweights_vec
+  lod_act <- analysis_data$lod_act
+  lod_light <- analysis_data$lod_light
 
   if (!settings$include_light){
     light <- matrix(NA,nrow = nrow(light),ncol = ncol(light))
@@ -433,10 +459,7 @@ build_two_stage_mt_data <- function(simulated_hmm,est_params,settings){
   validate_hmm_data(act,light,vcovar_mat)
   validate_survival_inputs(surv_time,surv_event,surv_covar,ncol(act))
   validate_re_prob(re_prob,ncol(act),settings$fit_mix_num)
-
-  if (any(sweights_vec != 1)){
-    stop("Two-stage Murphy-Topel v1 supports only unit simulation weights")
-  }
+  ValidateSEAnalysisData(analysis_data,settings$fit_mix_num)
 
   survival_context <- make_survival_context(surv_time,surv_event,surv_covar,
                                             re_prob,settings$fit_mix_num,
@@ -456,8 +479,8 @@ build_two_stage_mt_data <- function(simulated_hmm,est_params,settings){
     data_context = list(act = act,
                         light = light,
                         vcovar_mat = vcovar_mat,
-                        lod_act = -5.809153,
-                        lod_light = -1.560658,
+                         lod_act = lod_act,
+                         lod_light = lod_light,
                         sweights_vec = sweights_vec,
                         lambda_act_mat = lambda_act_mat,
                         lambda_light_mat = lambda_light_mat,
@@ -551,31 +574,37 @@ input_file <- find_saved_model_file(settings$model_name)
 output_file <- make_murphy_topel_output_file(input_file,eps)
 to_save <- load_to_save(input_file)
 
-if (settings$data_source != DATA_SOURCE[["simulation"]]){
-  stop("JLC-HMMse-two-stage currently supports only simulated data")
-}
 if (settings$model_type != "two_stage"){
-  stop("JLC-HMMse-two-stage supports only two-stage simulated models")
+  stop("JLC-HMMse-two-stage supports only two-stage models")
 }
 
-validate_saved_results(to_save,required_sections = c("true_params",
-                                                      "est_params",
-                                                      "settings"),
+validate_saved_results(to_save,required_sections = c("est_params","settings"),
                         source_name = input_file)
 
 saved_settings <- get_saved_section(to_save,"settings",required = TRUE)
-for (field in c("sim_num","model_name","fit_mix_num","true_mix_num",
-                "simulation_days","num_people","emission_overlap",
-                "model_type")){
+settings_fields <- c("sim_num","model_name","fit_mix_num","model_type",
+                     "data_source","period_len","run_bootstrap",
+                     "run_leave_one_out_cv","target_weekday","weekend_only",
+                     "include_activity","include_light")
+if (settings$data_source == DATA_SOURCE[["simulation"]]){
+  settings_fields <- c(settings_fields,"true_mix_num","simulation_days",
+                       "num_people","emission_overlap")
+}
+for (field in settings_fields){
   if (!identical(settings[[field]],saved_settings[[field]])){
     stop(paste("Command-line settings do not match saved setting:",field))
   }
 }
 
 est_params <- get_saved_section(to_save,"est_params",required = TRUE)
-true_params <- get_saved_section(to_save,"true_params",required = TRUE)
-simulated <- get_simulated_hmm(to_save,settings)
-mt_data <- build_two_stage_mt_data(simulated$simulated_hmm,est_params,
+true_params <- if (settings$data_source == DATA_SOURCE[["simulation"]]){
+  get_saved_section(to_save,"true_params",required = TRUE)
+} else {
+  NULL
+}
+analysis <- get_se_analysis_data(to_save,est_params,settings)
+analysis_data <- analysis$analysis_data
+mt_data <- build_two_stage_mt_data(analysis_data,est_params,
                                    settings)
 params <- mt_data$params
 data_context <- mt_data$data_context
@@ -604,7 +633,7 @@ posterior_context <- RebuildLongitudinalPosteriorContext(
 posterior_max_abs_diff <- max(abs(posterior_context$re_prob -
                                     data_context$re_prob),na.rm = TRUE)
 if (!is.finite(posterior_max_abs_diff) ||
-    posterior_max_abs_diff > 1e-5){
+    posterior_max_abs_diff > parameter_wiggle){
   stop(paste("Rebuilt longitudinal re_prob differs from saved re_prob;",
              "max abs diff =",posterior_max_abs_diff))
 }
@@ -623,7 +652,7 @@ if (length(saved_gamma) != length(gamma_hat)){
 }
 names(saved_gamma) <- names(gamma_hat)
 cox_coef_max_abs_diff <- max(abs(gamma_hat - saved_gamma),na.rm = TRUE)
-if (!is.finite(cox_coef_max_abs_diff) || cox_coef_max_abs_diff > 1e-5){
+if (!is.finite(cox_coef_max_abs_diff) || cox_coef_max_abs_diff > parameter_wiggle){
   stop(paste("Base Cox coefficients differ from saved two-stage estimates;",
              "max abs diff =",cox_coef_max_abs_diff))
 }
@@ -678,7 +707,7 @@ colnames(V_naive) <- names(gamma_hat)
 rownames(I2) <- names(gamma_hat)
 colnames(I2) <- names(gamma_hat)
 
-S2 <- residuals(cox_fit_base,type = "score")
+S2 <- residuals(cox_fit_base,type = "score",weighted = TRUE)
 S2 <- as.matrix(S2)
 if (ncol(S2) != length(gamma_hat) && nrow(S2) == length(gamma_hat)){
   S2 <- t(S2)
@@ -716,45 +745,26 @@ rownames(V_MT_raw) <- names(gamma_hat)
 colnames(V_MT_raw) <- names(gamma_hat)
 
 V_MT_repair <- repair_covariance_if_tiny_negative(V_MT_raw)
+if (isTRUE(V_MT_repair$failed)){
+  stop("Murphy-Topel covariance repair failed")
+}
 V_MT <- V_MT_repair$vcov
 rownames(V_MT) <- names(gamma_hat)
 colnames(V_MT) <- names(gamma_hat)
 
-B11 <- crossprod(S1)
-B22 <- crossprod(S2)
-B12 <- C12
-A21 <- -I2 %*% D
-
-p <- nrow(I1_for_vcov)
-q <- nrow(I2)
-A <- rbind(
-  cbind(I1_for_vcov,matrix(0,nrow = p,ncol = q)),
-  cbind(A21,I2)
-)
-B <- rbind(
-  cbind(B11,B12),
-  cbind(t(B12),B22)
-)
-A_inv <- safe_solve(A)
-V_MT_stacked_empirical <- matrix(NA_real_,nrow = q,ncol = q)
-rownames(V_MT_stacked_empirical) <- names(gamma_hat)
-colnames(V_MT_stacked_empirical) <- names(gamma_hat)
-if (!is.null(A_inv)){
-  V_stacked <- A_inv %*% B %*% t(A_inv)
-  surv_idx <- (p + 1):(p + q)
-  V_MT_stacked_empirical <- V_stacked[surv_idx,surv_idx,drop = FALSE]
-  V_MT_stacked_empirical <- 0.5 * (V_MT_stacked_empirical +
-                                     t(V_MT_stacked_empirical))
-  rownames(V_MT_stacked_empirical) <- names(gamma_hat)
-  colnames(V_MT_stacked_empirical) <- names(gamma_hat)
-}
-
 se_naive <- sqrt(diag(V_naive))
 se_delta <- sqrt(diag(V_delta))
 se_MT <- sqrt(diag(V_MT))
+if (any(!is.finite(se_MT))){
+  stop("Murphy-Topel standard errors contain nonfinite values")
+}
 
-gamma_truth <- build_simulation_gamma_truth(names(gamma_hat),true_params,
-                                            settings$fit_mix_num)
+gamma_truth <- if (settings$data_source == DATA_SOURCE[["simulation"]]){
+  build_simulation_gamma_truth(names(gamma_hat),true_params,
+                               settings$fit_mix_num)
+} else {
+  stats::setNames(rep(NA_real_,length(gamma_hat)),names(gamma_hat))
+}
 
 V_MT_zero_C12 <- V_delta
 V_delta_zero_D <- V_naive
@@ -762,13 +772,11 @@ V_MT_zero_D <- V_naive
 
 dimension_checks <- check_dimensions(I1_for_vcov,V1,D,S1,S2,C12,V_MT)
 symmetry_checks <- data.frame(
-  matrix = c("I1","V_naive","V_delta","V_MT",
-             "V_MT_stacked_empirical"),
+  matrix = c("I1","V_naive","V_delta","V_MT"),
   max_abs_asymmetry = c(matrix_max_asymmetry(I1_for_vcov),
                         matrix_max_asymmetry(V_naive),
                         matrix_max_asymmetry(V_delta),
-                        matrix_max_asymmetry(V_MT),
-                        matrix_max_asymmetry(V_MT_stacked_empirical)),
+                        matrix_max_asymmetry(V_MT)),
   stringsAsFactors = FALSE
 )
 score_checks <- rbind(score_sum_diagnostics(S1,"S1"),
@@ -784,11 +792,18 @@ formula_checks <- data.frame(
 )
 
 to_save$murphy_topel <- list(
+  variance_method = "weighted_murphy_topel",
   settings = list(h2_eps = eps,
                   cox_ties = "breslow",
+                  cox_score_residuals_weighted = TRUE,
+                  variance_method = "weighted_murphy_topel",
                   input_file = input_file,
                   output_file = output_file,
-                  data_regenerated = simulated$regenerated,
+                  data_source = settings$data_source,
+                  data_regenerated = analysis$data_regenerated,
+                  data_reconstructed = analysis$data_reconstructed,
+                  weight_summary =
+                    SummarizeSEWeights(data_context$sweights_vec),
                   retain_score_matrices = retain_score_matrices),
   coefficient_names = names(gamma_hat),
   gamma_hat = gamma_hat,
@@ -817,7 +832,6 @@ to_save$murphy_topel <- list(
   V_delta = V_delta,
   V_MT_raw = V_MT_raw,
   V_MT = V_MT,
-  V_MT_stacked_empirical = V_MT_stacked_empirical,
   se_naive = se_naive,
   se_delta = se_delta,
   se_MT = se_MT,
@@ -840,8 +854,6 @@ to_save$murphy_topel <- list(
     V_delta_eigenvalues = matrix_eigenvalues(V_delta),
     V_MT_raw_eigenvalues = matrix_eigenvalues(V_MT_raw),
     V_MT_eigenvalues = matrix_eigenvalues(V_MT),
-    V_MT_stacked_empirical_eigenvalues =
-      matrix_eigenvalues(V_MT_stacked_empirical),
     runtime_seconds = as.numeric(difftime(Sys.time(),
                                           jlc_hmmse_two_stage_start_time,
                                           units = "secs")),

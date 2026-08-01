@@ -206,8 +206,10 @@ prepare_nhanes_data <- function(period_len,bootstrap,leave_out,sim_num,
   }
 
   nhanes_mort_list <- get("NHANES_mort_list",envir = mortality_env)
-  nhanes1 <- nhanes_mort_list[[1]] %>% filter(eligstat == 1)
-  nhanes2 <- nhanes_mort_list[[2]] %>% filter(eligstat == 1)
+  nhanes1 <- nhanes_mort_list[[1]]
+  nhanes2 <- nhanes_mort_list[[2]]
+  nhanes1 <- nhanes1[nhanes1$eligstat == 1,,drop = FALSE]
+  nhanes2 <- nhanes2[nhanes2$eligstat == 1,,drop = FALSE]
   lmf_data <- rbind(nhanes1,nhanes2)
 
   wave_files <- if (period_len == HOURLY_PERIODS_PER_DAY){
@@ -261,11 +263,11 @@ prepare_nhanes_data <- function(period_len,bootstrap,leave_out,sim_num,
   sweights_vec_raw <- id$sweights/NHANES_NUM_WAVES
   sweights_vec <- sweights_vec_raw/mean(sweights_vec_raw)
 
-  id <- id %>% mutate(age_disc = case_when(age <= 30 ~ 1,
-                                           age <= 50 & age > 30 ~ 2,
-                                           age <= 65 & age > 50 ~ 3,
-                                           age > 65 ~ 4))
-  id <- id %>% mutate(pov_disc = floor(poverty)+1)
+  id$age_disc <- ifelse(
+    id$age <= 30,1,
+    ifelse(id$age <= 50,2,ifelse(id$age <= 65,3,4))
+  )
+  id$pov_disc <- floor(id$poverty) + 1
   id$modact <- id$modact - 1
 
   surv_event <- lmf_data$mortstat
@@ -324,7 +326,8 @@ prepare_nhanes_data <- function(period_len,bootstrap,leave_out,sim_num,
     sweights_vec_old <- sweights_vec
 
     first_day_vec_old <- as.numeric(id_old$PAXDAYWM)
-    vcovar_mat_old <- sapply(first_day_vec_old,FirstDay2WeekInd)
+    vcovar_mat_old <- sapply(first_day_vec_old,FirstDay2WeekInd,
+                             period_len = period_len)
     surv_covar_old <- make_nhanes_survival_covariates(id_old)
 
     age_vec_old <- id_old$age
@@ -356,7 +359,8 @@ prepare_nhanes_data <- function(period_len,bootstrap,leave_out,sim_num,
   }
 
   first_day_vec <- as.numeric(id$PAXDAYWM)
-  vcovar_mat <- sapply(first_day_vec,FirstDay2WeekInd)
+  vcovar_mat <- sapply(first_day_vec,FirstDay2WeekInd,
+                       period_len = period_len)
 
   if (single_day != WEEKDAY_CODES[["all"]]){
     single_day_mat <- sapply(first_day_vec,FirstDay2SingleDay,
@@ -395,9 +399,10 @@ prepare_nhanes_data <- function(period_len,bootstrap,leave_out,sim_num,
   surv_coef_len <- unlist(lapply(surv_coef_true,length))
   surv_coef <- surv_coef_true
 
-  combined_covar_mat <- id %>%
-    dplyr::select(gender,race,overall_health,education,bmi_disc,diabetes,
-                  race,CHD,CHF,heart_attack,stroke,alcohol,smoking,phyfunc)
+  combined_covar_mat <- id[,c(
+    "gender","race","overall_health","education","bmi_disc","diabetes",
+    "CHD","CHF","heart_attack","stroke","alcohol","smoking","phyfunc"
+  ),drop = FALSE]
   combined_covar_mat <- lapply(combined_covar_mat,factor)
 
   if (weekend_only){

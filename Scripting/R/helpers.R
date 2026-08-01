@@ -64,7 +64,8 @@ FirstDay2SingleDay <- function(first_day,target_day){
 }
 
 #determines week/weekend
-FirstDay2WeekInd <- function(first_day){
+FirstDay2WeekInd <- function(first_day,
+                             period_len = DEFAULT_PERIODS_PER_DAY){
   
   if (period_len == DEFAULT_PERIODS_PER_DAY){
     weekday <- numeric(DEFAULT_PERIODS_PER_DAY)

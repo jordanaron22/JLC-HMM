@@ -504,7 +504,6 @@ like_diff <- new_likelihood
 # apply(alpha[[1]][,,1]+beta[[1]][,,1],1,logSumExp)
 iter_count <- 1
 stop_crit <- BASE_STOP_CRIT
-if (!real_data){stop_crit <- stop_crit * SIM_STOP_CRIT_MULTIPLIER}
 # if(mix_num > 8){stop_crit <- stop_crit * 10}
 # if(mix_num > 12){stop_crit <- stop_crit * 10}
 # if(mix_num > 15){stop_crit <- stop_crit * 5}
@@ -1696,8 +1695,6 @@ if (!real_data){
 #removes some data from saving
 if (save_space){
   est_params$decoded_mat <- 0
-  est_params$bline_vec <- 0
-  est_params$cbline_vec <- 0
   est_params$post_decode <- 0
 }
 

@@ -4,7 +4,12 @@ library(dplyr)
 library(forestploter)
 library(grid)
 
-model_file <- file.path("Data","JMHMMFitMix5Seed.rda")
+args <- commandArgs(trailingOnly = TRUE)
+model_file <- if (length(args) >= 1){
+  args[[1]]
+} else {
+  file.path("Data","JMHMMFitMix5Seed_oakes_profiled_se.rda")
+}
 nhanes_file <- file.path("Data","NHANES_2011_2012_2013_2014.rda")
 wave_g_file <- file.path("Data","Wavedata_G.rda")
 wave_h_file <- file.path("Data","Wavedata_H.rda")
@@ -17,7 +22,6 @@ load(model_file)
 est_params <- to_save$est_params
 beta_vec <- est_params$beta_vec
 surv_coef <- est_params$surv_coef
-beta_se <- est_params$beta_se
 re_prob <- est_params$re_prob
 mix_num <- length(beta_vec)
 
@@ -85,6 +89,15 @@ coef_values <- c(
   smoking_2 = surv_coef[[13]][3],
   physical_function_1 = surv_coef[[14]][2]
 )
+
+if (is.null(to_save$oakes$survival_schur$se_surv)){
+  stop("The model file does not contain weighted Oakes survival SEs")
+}
+beta_se <- as.numeric(to_save$oakes$survival_schur$se_surv)
+if (length(beta_se) != length(coef_values)){
+  stop("Weighted Oakes survival SE count does not match coefficients")
+}
+names(beta_se) <- names(coef_values)
 
 coef_values <- c(
   coef_values,

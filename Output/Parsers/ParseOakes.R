@@ -553,7 +553,8 @@ summarize_class_beta <- function(rows){
   summaries <- lapply(split_rows,function(dat){
     valid <- dat$valid
     valid_dat <- dat[valid,,drop = FALSE]
-    out <- as.list(dat[1,group_cols,drop = FALSE])
+    out <- lapply(group_cols,function(col) dat[[col]][[1]])
+    names(out) <- group_cols
     out$n <- nrow(dat)
     out$n_valid <- nrow(valid_dat)
 
@@ -600,6 +601,17 @@ summarize_class_beta <- function(rows){
   result
 }
 
+flatten_data_frame_columns <- function(result){
+  for (col in names(result)){
+    if (is.data.frame(result[[col]]) && ncol(result[[col]]) == 1){
+      result[[col]] <- result[[col]][[1]]
+    } else if (is.list(result[[col]])){
+      result[[col]] <- unlist(result[[col]],use.names = FALSE)
+    }
+  }
+  result
+}
+
 summarize_resources <- function(file_inventory){
   if (nrow(file_inventory) == 0){
     return(data.frame())
@@ -615,12 +627,19 @@ summarize_resources <- function(file_inventory){
   group_cols <- c("file_type","model_type","simulation_days","num_people",
                   "true_mix_num","fit_mix_num","emission_overlap",
                   "oakes_baseline_mode")
-  group_key <- interaction(data[,group_cols,drop = FALSE],
+  key_data <- data[,group_cols,drop = FALSE]
+  key_data <- as.data.frame(lapply(key_data,function(x){
+    x <- as.character(x)
+    x[is.na(x)] <- "<NA>"
+    x
+  }),stringsAsFactors = FALSE)
+  group_key <- interaction(key_data,
                            drop = TRUE,lex.order = TRUE)
   split_data <- split(data,group_key)
 
   summaries <- lapply(split_data,function(dat){
-    out <- as.list(dat[1,group_cols,drop = FALSE])
+    out <- lapply(group_cols,function(col) dat[[col]][[1]])
+    names(out) <- group_cols
     out$n_files <- nrow(dat)
     out$n_seeds <- length(unique(dat$sim_num[is.finite(dat$sim_num)]))
     out$mean_runtime_seconds <- mean_finite(dat$runtime_seconds)
@@ -667,6 +686,7 @@ summarize_resources <- function(file_inventory){
   })
 
   result <- do.call(rbind,summaries)
+  result <- flatten_data_frame_columns(result)
   row.names(result) <- NULL
   result[order(result$model_type,result$file_type,result$simulation_days,
                result$emission_overlap,result$oakes_baseline_mode),,

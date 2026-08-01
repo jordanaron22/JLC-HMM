@@ -15,19 +15,11 @@ ResourceLimit["1|5000|5|joint|high"]="5 5"
 ResourceLimit["3|5000|5|joint|high"]="16 10"
 ResourceLimit["7|5000|5|joint|high"]="52 20"
 
-ResourceLimit["1|5000|5|joint|mid"]="5 5"
-ResourceLimit["3|5000|5|joint|mid"]="16 10"
-ResourceLimit["7|5000|5|joint|mid"]="52 20"
-
 
 ScenarioKeys=(
     "1|5000|5|joint|low|profiled"
     "3|5000|5|joint|low|profiled"
     "7|5000|5|joint|low|profiled"
-
-    "1|5000|5|joint|mid|profiled"
-    "3|5000|5|joint|mid|profiled"
-    "7|5000|5|joint|mid|profiled"
 
     "1|5000|5|joint|high|profiled"
     "3|5000|5|joint|high|profiled"
@@ -44,6 +36,8 @@ if [ ! -f "$manifest_file" ]; then
     printf "run_id\tslurm_job_id\tjob_name\tsim_num\tinput_file\texpected_file\tfit_mix_num\tmodel_type\tdata_source\trun_bootstrap\tinit_jitter_scale\trun_leave_one_out_cv\tuse_hot_start\tsimulation_days\tnum_people\ttrue_mix_num\tsave_reduced_output\tclass_selection_run\temission_overlap\tsurvival_baseline_mode\trequested_time\trequested_mem\th2_eps\n" > "$manifest_file"
 fi
 
+#these need to match the load-in files, as they determine file name
+#doesnt jitter before se calculation
 true_mix_num=5
 save_reduced_output=true
 class_selection_run=true

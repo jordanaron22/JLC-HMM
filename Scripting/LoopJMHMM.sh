@@ -3,7 +3,7 @@
 declare -A ResourceLimit
 
 array_start=1
-array_end=10
+array_end=100
 
 # key: simulation_days|num_people|fit_mix_num|model_type|emission_overlap
 # value: recommended_time_hours memory_limit_gb
@@ -14,10 +14,6 @@ ResourceLimit["7|5000|5|joint|low"]="9 11"
 ResourceLimit["1|5000|5|joint|high"]="17 7"
 ResourceLimit["3|5000|5|joint|high"]="27 8"
 ResourceLimit["7|5000|5|joint|high"]="52 11"
-
-ResourceLimit["1|5000|5|joint|mid"]="12 7"
-ResourceLimit["3|5000|5|joint|mid"]="15 8"
-ResourceLimit["7|5000|5|joint|mid"]="15 11"
 
 ResourceLimit["1|5000|5|two_stage|low"]="10 6"
 ResourceLimit["3|5000|5|two_stage|low"]="10 6"
@@ -57,50 +53,42 @@ ResourceLimit["3|5000|8|joint|low"]="44 9"
 ResourceLimit["7|5000|8|joint|low"]="80 13"
 
 ScenarioKeys=(
-    # "1|5000|5|joint|low"
-    # "3|5000|5|joint|low"
-    # "7|5000|5|joint|low"
+    "1|5000|5|joint|low"
+    "3|5000|5|joint|low"
+    "7|5000|5|joint|low"
 
-    "1|5000|5|joint|mid"
-    "3|5000|5|joint|mid"
-    "7|5000|5|joint|mid"
+    "1|5000|5|joint|high"
+    "3|5000|5|joint|high"
+    "7|5000|5|joint|high"
 
-    # "1|5000|5|joint|high"
-    # "3|5000|5|joint|high"
-    # "7|5000|5|joint|high"
+    "1|5000|5|two_stage|low"
+    "3|5000|5|two_stage|low"
+    "7|5000|5|two_stage|low"
 
-    # "1|5000|5|two_stage|low"
-    # "3|5000|5|two_stage|low"
-    # "7|5000|5|two_stage|low"
+    "1|5000|5|two_stage|high"
+    "3|5000|5|two_stage|high"
+    "7|5000|5|two_stage|high"
 
-    "1|5000|5|two_stage|mid"
-    "3|5000|5|two_stage|mid"
-    "7|5000|5|two_stage|mid"
-
-    # "1|5000|5|two_stage|high"
-    # "3|5000|5|two_stage|high"
-    # "7|5000|5|two_stage|high"
-
+    # "1|5000|1|joint|low"
     # "1|5000|2|joint|low"
     # "1|5000|3|joint|low"
     # "1|5000|4|joint|low"
     # "1|5000|6|joint|low"
     # "1|5000|7|joint|low"
-    # "1|5000|8|joint|low"
 
+    # "3|5000|1|joint|low"
     # "3|5000|2|joint|low"
     # "3|5000|3|joint|low"
     # "3|5000|4|joint|low"
     # "3|5000|6|joint|low"
     # "3|5000|7|joint|low"
-    # "3|5000|8|joint|low"
 
+    # "7|5000|1|joint|low"
     # "7|5000|2|joint|low"
     # "7|5000|3|joint|low"
     # "7|5000|4|joint|low"
     # "7|5000|6|joint|low"
     # "7|5000|7|joint|low"
-    # "7|5000|8|joint|low"
 
 )
 
