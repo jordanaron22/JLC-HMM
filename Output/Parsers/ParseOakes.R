@@ -280,7 +280,9 @@ file_metadata <- function(file,to_save,file_type,est_beta){
 get_survival_se_methods <- function(to_save,file_type){
   if (file_type == "joint_oakes"){
     se <- to_save[["oakes"]][["survival_schur"]][["se_surv"]]
-    return(list(oakes_schur = suppressWarnings(as.numeric(se))))
+    se_naive <- to_save$est_params$beta_se
+    return(list(oakes_schur = suppressWarnings(as.numeric(se)),
+                joint_naive = suppressWarnings(as.numeric(se_naive))))
   }
 
   if (file_type == "two_stage_murphy_topel"){
