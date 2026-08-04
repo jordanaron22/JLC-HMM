@@ -39,17 +39,6 @@ x <- readRDS(input_file)
 
 cov_summary <- x$class_beta_summary
 
-# wide_cov <- reshape(
-#   cov_summary[
-#     , c("simulation_days", "num_people", "true_mix_num", "fit_mix_num",
-#         "emission_overlap", "param_name", "model_type", "coverage",
-#         "mean_bias", "rmse", "median_se")
-#   ],
-#   idvar = c("simulation_days", "num_people", "true_mix_num", "fit_mix_num",
-#             "emission_overlap", "param_name"),
-#   timevar = "model_type",
-#   direction = "wide"
-# )
 
 wide_cov <- cov_summary %>%
   select(
@@ -74,12 +63,15 @@ scenario_cov <- wide_cov %>%
     across(
       c(
         coverage_joint_oakes_schur,
+        coverage_joint_joint_naive,
         coverage_two_stage_non_oakes_beta_se,
         coverage_two_stage_two_stage_murphy_topel,
         rmse_joint_oakes_schur,
+        rmse_joint_joint_naive,
         rmse_two_stage_non_oakes_beta_se,
         rmse_two_stage_two_stage_murphy_topel,
         median_se_joint_oakes_schur,
+        median_se_joint_joint_naive,
         median_se_two_stage_non_oakes_beta_se,
         median_se_two_stage_two_stage_murphy_topel
       ),
@@ -94,21 +86,26 @@ make_coverage_plot_data <- function(wide_data){
   joint_data <- wide_data[,c("simulation_days","emission_overlap",
                              "coverage_joint_oakes_schur"),drop = FALSE]
   names(joint_data)[names(joint_data) == "coverage_joint_oakes_schur"] <- "coverage"
-  joint_data$model_type <- "joint"
+  joint_data$model_type <- "Joint"
+  
+  joint_data_naive <- wide_data[,c("simulation_days","emission_overlap",
+                             "coverage_joint_joint_naive"),drop = FALSE]
+  names(joint_data_naive)[names(joint_data_naive) == "coverage_joint_joint_naive"] <- "coverage"
+  joint_data_naive$model_type <- "Joint Naive"
 
   two_stage_data_naive <- wide_data[,c("simulation_days","emission_overlap",
                                  "coverage_two_stage_non_oakes_beta_se"),drop = FALSE]
   names(two_stage_data_naive)[names(two_stage_data_naive) == "coverage_two_stage_non_oakes_beta_se"] <-
     "coverage"
-  two_stage_data_naive$model_type <- "two_stage naive"
+  two_stage_data_naive$model_type <- "Two-Stage Naive"
 
   two_stage_data_MT <- wide_data[,c("simulation_days","emission_overlap",
                                  "coverage_two_stage_two_stage_murphy_topel"),drop = FALSE]
   names(two_stage_data_MT)[names(two_stage_data_MT) == "coverage_two_stage_two_stage_murphy_topel"] <-
     "coverage"
-  two_stage_data_MT$model_type <- "two_stage MT"
+  two_stage_data_MT$model_type <- "Two-Stage MT"
 
-  plot_data <- rbind(joint_data,two_stage_data_naive,two_stage_data_MT)
+  plot_data <- rbind(joint_data,joint_data_naive,two_stage_data_naive,two_stage_data_MT)
   plot_data <- plot_data[is.finite(plot_data$coverage),,drop = FALSE]
 
   day_values <- sort(unique(plot_data$simulation_days))
@@ -122,19 +119,6 @@ make_coverage_plot_data <- function(wide_data){
     paste0("Overlap: ",title_case(plot_data$emission_overlap)),
     levels = paste0("Overlap: ",title_case(overlap_values))
   )
-
-  plot_data <- plot_data %>%
-    mutate(
-      model_type = recode(
-        model_type,
-        "joint" = "Joint Oakes",
-        "two_stage naive" = "Two-Stage Naive",
-        "two_stage MT" = "Two-Stage MT" 
-      ),
-      model_type = factor(model_type, levels = c("Joint Oakes","Two-Stage Naive", "Two-Stage MT"))
-    )
-
-
 
   plot_data
 }
@@ -166,6 +150,10 @@ make_class_coverage_plot_data <- function(wide_data){
   names(joint_data)[names(joint_data) == "coverage_joint_oakes_schur"] <- "coverage"
   joint_data$model_type <- "Joint"
 
+  joint_data_naive <- wide_data[,c(id_cols,"coverage_joint_joint_naive"),drop = FALSE]
+  names(joint_data_naive)[names(joint_data_naive) == "coverage_joint_joint_naive"] <- "coverage"
+  joint_data_naive$model_type <- "Joint Naive"
+
   two_stage_data_naive <- wide_data[,c(id_cols,"coverage_two_stage_non_oakes_beta_se"),drop = FALSE]
   names(two_stage_data_naive)[names(two_stage_data_naive) == "coverage_two_stage_non_oakes_beta_se"] <-
     "coverage"
@@ -176,7 +164,7 @@ make_class_coverage_plot_data <- function(wide_data){
     "coverage"
   two_stage_data_MT$model_type <- "Two-Stage MT"
 
-  plot_data <- rbind(joint_data,two_stage_data_naive, two_stage_data_MT)
+  plot_data <- rbind(joint_data,joint_data_naive,two_stage_data_naive, two_stage_data_MT)
   plot_data <- plot_data[is.finite(plot_data$coverage),,drop = FALSE]
 
   day_values <- sort(unique(plot_data$simulation_days))
