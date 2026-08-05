@@ -256,8 +256,8 @@ prepare_nhanes_data <- function(period_len,bootstrap,leave_out,sim_num,
   mims <- mims[seqn_com_id,]
   lmf_data <- lmf_data[seqn_com_lmf,]
 
-  if (sum(id$SEQN - lmf_data$seqn) != 0){
-    stop("LMF data are not linked to NHANES actigraphy records correctly")
+  if (!identical(match(id$SEQN, lmf_data$seqn),c(1:length(lmf_data$seqn)))){
+    stop("mismatch in LMF and actigraphy data")
   }
 
   sweights_vec_raw <- id$sweights/NHANES_NUM_WAVES

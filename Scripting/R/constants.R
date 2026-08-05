@@ -39,6 +39,7 @@ CV_LEAVE_OUT_SCENARIOS <- c(sequence_only = 1, no_light = 2,
                             no_activity = 3, no_transition = 4,
                             activity_only = 5, standard = 6)
 BASE_STOP_CRIT <- 1e-8
+PARAMETER_STOP_CRIT <- 5e-4
 MIN_EM_ITERATIONS <- 5
 INTERIM_SAVE_EVERY <- 10
 REORDER_STOP_CRIT_MULTIPLIER <- 10

@@ -118,8 +118,11 @@ CalcCindex <- function(
     beta_vec,
     re_prob,
     surv_covar_risk_vec,
-    sweights_vec
+    sweights_vec,
+    model_type = c("joint","two_stage")
 ) {
+
+  model_type <- match.arg(model_type)
 
   num_people <- length(surv_time)
 
@@ -167,25 +170,33 @@ CalcCindex <- function(
     stop("Each row of re_prob must have positive probability mass")
   }
 
-  re_prob <- re_prob/re_prob_sum
+  linear_predictor <- if (model_type == "joint"){
+    # Preserve the established joint-model calculation, including its
+    # normalization of posterior class probabilities.
+    normalized_re_prob <- re_prob/re_prob_sum
+    log(drop(normalized_re_prob %*% exp(beta_vec))) +
+      surv_covar_risk_vec
+  } else {
+    CalcTwoStageLinearPredictor(
+      beta_vec = beta_vec,
+      re_prob = re_prob,
+      surv_covar_risk_vec = surv_covar_risk_vec
+    )
+  }
 
-  risk_score <-
-    log(drop(re_prob %*% exp(beta_vec))) +
-    surv_covar_risk_vec
-
-  if (any(!is.finite(risk_score))){
-    stop("risk_score contains non-finite values")
+  if (any(!is.finite(linear_predictor))){
+    stop("linear_predictor contains non-finite values")
   }
 
   concordance_data <- data.frame(
     surv_time = surv_time,
     surv_event = surv_event,
-    risk_score = risk_score,
+    linear_predictor = linear_predictor,
     sweights_vec = sweights_vec
   )
 
   result <- survival::concordance(
-    survival::Surv(surv_time, surv_event) ~ risk_score,
+    survival::Surv(surv_time, surv_event) ~ linear_predictor,
     data = concordance_data,
     weights = sweights_vec,
     reverse = TRUE,
@@ -258,12 +269,27 @@ BaselineHazardAtTimes <- function(baseline_surv_time,cbline_vec,prediction_times
 CalcIBS <- function(surv_time,surv_event,cbline_vec,beta_vec,surv_coef,
                     surv_covar,re_prob,incl_surv,mix_assignment,
                     surv_covar_risk_vec,baseline_surv_time = surv_time){
+  prediction_model_type <- if (
+    incl_surv == MODEL_TYPE_CODES[["joint"]]
+  ) {
+    "joint"
+  } else {
+    "two_stage"
+  }
+
   event_time <- unique(sort(surv_time))
   cbline_vec_new <- BaselineHazardAtTimes(
     baseline_surv_time,cbline_vec,event_time
   )
 
-  surv_mat_ind <- CalcS(event_time,cbline_vec_new,beta_vec,re_prob,surv_covar_risk_vec)
+  surv_mat_ind <- CalcSurvivalProbabilities(
+    model_type = prediction_model_type,
+    event_time = event_time,
+    cbline_vec_new = cbline_vec_new,
+    beta_vec = beta_vec,
+    re_prob = re_prob,
+    surv_covar_risk_vec = surv_covar_risk_vec
+  )
 
 
 
@@ -282,7 +308,10 @@ CalcIBS <- function(surv_time,surv_event,cbline_vec,beta_vec,surv_coef,
 
 #manual implementation
 CalcIBS2 <- function(surv_time,surv_event,cbline_vec,beta_vec,re_prob,
-                     surv_covar_risk_vec,baseline_surv_time = surv_time) {
+                     surv_covar_risk_vec,baseline_surv_time = surv_time,
+                     model_type = c("joint","two_stage")) {
+  model_type <- match.arg(model_type)
+
   km_fit <- survfit(Surv(surv_time, 1 - surv_event) ~ 1)
   cens_dist <- c(1,summary(km_fit)$surv)
   cens_dist_time <- c(0,summary(km_fit)$time)
@@ -293,7 +322,14 @@ CalcIBS2 <- function(surv_time,surv_event,cbline_vec,beta_vec,re_prob,
     baseline_surv_time,cbline_vec,event_time
   )
 
-  surv_mat_ind <- CalcS(event_time,cbline_vec_new,beta_vec,re_prob,surv_covar_risk_vec)
+  surv_mat_ind <- CalcSurvivalProbabilities(
+    model_type = model_type,
+    event_time = event_time,
+    cbline_vec_new = cbline_vec_new,
+    beta_vec = beta_vec,
+    re_prob = re_prob,
+    surv_covar_risk_vec = surv_covar_risk_vec
+  )
 
   ibs_score <- integrate(vBrierScore,lower = 0,upper = max(event_time),
                          surv_event = surv_event,surv_time = surv_time,cens_dist = cens_dist,
@@ -391,8 +427,11 @@ CalcCVIntervalSurvivalLogLik <- function(
     surv_covar_risk_vec,
     sweights_vec,
     baseline_surv_time,
-    interval_breaks = seq(0,102,by = 6)
+    interval_breaks = seq(0,102,by = 6),
+    model_type = c("joint","two_stage")
 ) {
+
+  model_type <- match.arg(model_type)
 
   num_people <- length(surv_time)
 
@@ -573,7 +612,8 @@ CalcCVIntervalSurvivalLogLik <- function(
   # Rows are prediction times and columns are held-out participants.
   ###########################################################################
 
-  survival_predictions <- CalcS(
+  survival_predictions <- CalcSurvivalProbabilities(
+    model_type = model_type,
     event_time = prediction_times,
     cbline_vec_new = cbline_prediction,
     beta_vec = beta_vec,
@@ -587,7 +627,7 @@ CalcCVIntervalSurvivalLogLik <- function(
   )) {
     stop(
       paste(
-        "CalcS returned survival predictions with unexpected",
+        "Survival prediction returned a matrix with unexpected",
         "dimensions"
       )
     )

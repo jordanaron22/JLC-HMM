@@ -6,6 +6,118 @@ SurvCovarRiskVec <- function(surv_covar,surv_coef){
   return(surv_covar_risk_vec)
 }
 
+# The two-stage Cox model treats posterior class probabilities as ordinary
+# covariates.  Use the probabilities exactly as they were supplied to
+# FitTwoStageCox(); silently renormalizing them here could make prediction
+# differ from the fitted Cox design matrix.
+CalcTwoStageLinearPredictor <- function(beta_vec,re_prob,
+                                        surv_covar_risk_vec){
+  re_prob <- as.matrix(re_prob)
+  num_people <- nrow(re_prob)
+
+  if (ncol(re_prob) != length(beta_vec)){
+    stop("ncol(re_prob) must equal length(beta_vec)")
+  }
+  if (any(!is.finite(beta_vec))){
+    stop("beta_vec contains nonfinite values")
+  }
+  if (length(surv_covar_risk_vec) != num_people){
+    stop("re_prob and surv_covar_risk_vec must describe the same participants")
+  }
+  if (any(!is.finite(re_prob)) || any(re_prob < 0)){
+    stop("re_prob must contain finite, nonnegative probabilities")
+  }
+  if (any(rowSums(re_prob) <= 0)){
+    stop("Every row of re_prob must have positive probability mass")
+  }
+  if (any(!is.finite(surv_covar_risk_vec))){
+    stop("surv_covar_risk_vec contains nonfinite values")
+  }
+
+  drop(re_prob %*% beta_vec) + surv_covar_risk_vec
+}
+
+# Generic Breslow baseline-hazard calculation for an already determined Cox
+# linear predictor.  This is used only for the post-fit two-stage model; the
+# established joint-model CalcBLHaz() path remains unchanged below.
+CalcBLHazFromLinearPredictor <- function(linear_predictor,surv_event,
+                                         surv_time,sweights_vec){
+  num_people <- length(surv_event)
+
+  if (length(surv_time) != num_people ||
+      length(linear_predictor) != num_people ||
+      length(sweights_vec) != num_people){
+    stop("Survival vectors, linear predictor, and weights must have equal lengths")
+  }
+  if (num_people == 0L){
+    return(list(bline_vec = numeric(0),cbline_vec = numeric(0)))
+  }
+  if (any(!surv_event %in% c(0,1))){
+    stop("surv_event must contain only 0 and 1")
+  }
+  if (any(!is.finite(surv_time))){
+    stop("surv_time contains nonfinite values")
+  }
+  if (any(!is.finite(linear_predictor))){
+    stop("linear_predictor contains nonfinite values")
+  }
+  if (any(!is.finite(sweights_vec)) ||
+      any(sweights_vec < 0) ||
+      sum(sweights_vec) <= 0){
+    stop("Invalid sample weights")
+  }
+
+  positive_weight <- sweights_vec > 0
+  linear_predictor_offset <- max(linear_predictor[positive_weight])
+  weighted_relative_risk <- sweights_vec *
+    exp(linear_predictor - linear_predictor_offset)
+
+  time_factor <- factor(surv_time,levels = sort(unique(surv_time)))
+  risk_by_time <- as.numeric(
+    tapply(weighted_relative_risk,time_factor,sum)
+  )
+  denominator_by_time <- rev(cumsum(rev(risk_by_time)))
+  event_weight_by_time <- as.numeric(
+    tapply(surv_event * sweights_vec,time_factor,sum)
+  )
+
+  if (any(!is.finite(denominator_by_time)) ||
+      any(denominator_by_time <= 0)){
+    stop("Two-stage baseline-hazard denominator is nonpositive or nonfinite")
+  }
+
+  log_denominator_by_time <-
+    linear_predictor_offset + log(denominator_by_time)
+  bline_by_time <- numeric(length(event_weight_by_time))
+  event_times <- event_weight_by_time > 0
+  bline_by_time[event_times] <- exp(
+    log(event_weight_by_time[event_times]) -
+      log_denominator_by_time[event_times]
+  )
+  cbline_by_time <- cumsum(bline_by_time)
+
+  list(
+    bline_vec = unname(bline_by_time[as.integer(time_factor)]),
+    cbline_vec = unname(cbline_by_time[as.integer(time_factor)])
+  )
+}
+
+CalcBLHazTwoStage <- function(beta_vec,re_prob,surv_covar_risk_vec,
+                              surv_event,surv_time,sweights_vec){
+  linear_predictor <- CalcTwoStageLinearPredictor(
+    beta_vec = beta_vec,
+    re_prob = re_prob,
+    surv_covar_risk_vec = surv_covar_risk_vec
+  )
+
+  CalcBLHazFromLinearPredictor(
+    linear_predictor = linear_predictor,
+    surv_event = surv_event,
+    surv_time = surv_time,
+    sweights_vec = sweights_vec
+  )
+}
+
 #calculates non-parametric baseline haz using breslow estimator
 CalcBLHaz <- function(surv_coef,beta_vec, re_prob,surv_covar_risk_vec,surv_event,surv_time,surv_covar, sweights_vec){
   n <- length(surv_event)
@@ -514,6 +626,49 @@ CalcS <- function(event_time,cbline_vec_new,beta_vec,re_prob,surv_covar_risk_vec
   }
 
   return(surv_mat_ind)
+}
+
+CalcSTwoStage <- function(event_time,cbline_vec_new,beta_vec,re_prob,
+                          surv_covar_risk_vec){
+  if (length(event_time) != length(cbline_vec_new)){
+    stop("event_time and cbline_vec_new must have equal lengths")
+  }
+  if (any(!is.finite(cbline_vec_new)) || any(cbline_vec_new < 0)){
+    stop("cbline_vec_new must contain finite, nonnegative values")
+  }
+
+  linear_predictor <- CalcTwoStageLinearPredictor(
+    beta_vec = beta_vec,
+    re_prob = re_prob,
+    surv_covar_risk_vec = surv_covar_risk_vec
+  )
+  relative_risk <- exp(linear_predictor)
+
+  if (any(!is.finite(relative_risk))){
+    stop("Two-stage relative-risk calculation produced nonfinite values")
+  }
+
+  outer(
+    cbline_vec_new,
+    relative_risk,
+    function(baseline_hazard,risk){
+      exp(-baseline_hazard * risk)
+    }
+  )
+}
+
+CalcSurvivalProbabilities <- function(model_type,event_time,cbline_vec_new,
+                                      beta_vec,re_prob,
+                                      surv_covar_risk_vec){
+  model_type <- match.arg(model_type,c("joint","two_stage"))
+
+  if (model_type == "joint"){
+    return(CalcS(event_time,cbline_vec_new,beta_vec,re_prob,
+                 surv_covar_risk_vec))
+  }
+
+  CalcSTwoStage(event_time,cbline_vec_new,beta_vec,re_prob,
+                surv_covar_risk_vec)
 }
 
 SurvCovar2Coef <- function(covar_mat,max_val = .1){
