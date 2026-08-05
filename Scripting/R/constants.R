@@ -47,7 +47,7 @@ REORDER_STOP_CRIT_MULTIPLIER <- 10
 # recompute baseline hazards, forward/backward probabilities, and likelihood.
 JOINT_BETA_STOP_CRIT <- 100
 
-EMISSION_OVERLAP_FACTOR <- c(low = 1, mid = 0.75, high = 0.5)
+EMISSION_OVERLAP_FACTOR <- c(low = 1, high = 0.75)
 DEFAULT_SIMULATION_DAYS <- 1
 DEFAULT_SIMULATION_PEOPLE <- 5000
 DEFAULT_MISSING_PERC <- 0.2
