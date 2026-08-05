@@ -2,7 +2,7 @@
 
 args <- commandArgs(trailingOnly = TRUE)
 
-input_root <- if (length(args) >= 1) args[[1]] else file.path("Output","Routputs")
+input_root <- if (length(args) >= 1) args[[1]] else file.path("Output","Routputs","Oakes")
 output_file <- if (length(args) >= 2) args[[2]] else file.path("Output","parse_oakes_results.rds")
 
 Z_95 <- 1.96

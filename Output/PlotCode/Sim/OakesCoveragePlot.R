@@ -64,15 +64,15 @@ scenario_cov <- wide_cov %>%
       c(
         coverage_joint_oakes_schur,
         coverage_joint_joint_naive,
-        coverage_two_stage_non_oakes_beta_se,
+        coverage_two_stage_two_stage_naive,
         coverage_two_stage_two_stage_murphy_topel,
         rmse_joint_oakes_schur,
         rmse_joint_joint_naive,
-        rmse_two_stage_non_oakes_beta_se,
+        rmse_two_stage_two_stage_naive,
         rmse_two_stage_two_stage_murphy_topel,
         median_se_joint_oakes_schur,
         median_se_joint_joint_naive,
-        median_se_two_stage_non_oakes_beta_se,
+        median_se_two_stage_two_stage_naive,
         median_se_two_stage_two_stage_murphy_topel
       ),
       ~ mean(.x, na.rm = TRUE)
@@ -94,8 +94,8 @@ make_coverage_plot_data <- function(wide_data){
   joint_data_naive$model_type <- "Joint Naive"
 
   two_stage_data_naive <- wide_data[,c("simulation_days","emission_overlap",
-                                 "coverage_two_stage_non_oakes_beta_se"),drop = FALSE]
-  names(two_stage_data_naive)[names(two_stage_data_naive) == "coverage_two_stage_non_oakes_beta_se"] <-
+                                 "coverage_two_stage_two_stage_naive"),drop = FALSE]
+  names(two_stage_data_naive)[names(two_stage_data_naive) == "coverage_two_stage_two_stage_naive"] <-
     "coverage"
   two_stage_data_naive$model_type <- "Two-Stage Naive"
 
@@ -154,8 +154,8 @@ make_class_coverage_plot_data <- function(wide_data){
   names(joint_data_naive)[names(joint_data_naive) == "coverage_joint_joint_naive"] <- "coverage"
   joint_data_naive$model_type <- "Joint Naive"
 
-  two_stage_data_naive <- wide_data[,c(id_cols,"coverage_two_stage_non_oakes_beta_se"),drop = FALSE]
-  names(two_stage_data_naive)[names(two_stage_data_naive) == "coverage_two_stage_non_oakes_beta_se"] <-
+  two_stage_data_naive <- wide_data[,c(id_cols,"coverage_two_stage_two_stage_naive"),drop = FALSE]
+  names(two_stage_data_naive)[names(two_stage_data_naive) == "coverage_two_stage_two_stage_naive"] <-
     "coverage"
   two_stage_data_naive$model_type <- "Two-Stage Naive"
 
@@ -222,3 +222,6 @@ ggsave(
   height = 7,
   dpi = 300
 )
+
+
+# scenario_plot_data %>% filter(emission_overlap == "high", simulation_days == 7)
