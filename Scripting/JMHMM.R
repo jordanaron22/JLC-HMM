@@ -504,9 +504,14 @@ like_diff <- new_likelihood
 # apply(alpha[[1]][,,1]+beta[[1]][,,1],1,logSumExp)
 iter_count <- 1
 stop_crit <- BASE_STOP_CRIT
-# if(mix_num > 8){stop_crit <- stop_crit * 10}
-# if(mix_num > 12){stop_crit <- stop_crit * 10}
-# if(mix_num > 15){stop_crit <- stop_crit * 5}
+
+#for high overlap have a stricter tolerance for convergence so se calculations dont have negative values
+#Theory says that parameters need to be close to MLE for Oakes (which we still use for longitudinal two-stage parameters)
+#not using now but may need to
+# if (identical(data_source, DATA_SOURCE[["simulation"]]) &&
+#     identical(emission_overlap, "high")){
+#   stop_crit <- BASE_STOP_CRIT / 10
+# }
 
 ##### Named EM containers #####
 # Fixed inputs are grouped separately from parameters that change during EM.
@@ -535,6 +540,7 @@ em_inputs <- list(
 
 em_control <- list(
   convergence_tolerance = stop_crit,
+  parameter_tolerance = PARAMETER_STOP_CRIT,
   minimum_iterations = MIN_EM_ITERATIONS,
   interim_save_every = INTERIM_SAVE_EVERY,
   reorder_tolerance_multiplier = REORDER_STOP_CRIT_MULTIPLIER,
@@ -542,6 +548,9 @@ em_control <- list(
   run_only_survival = run_only_surv,
   check_transition_update = check_tran
 )
+
+max_parameter_change <- Inf
+parameter_change_history <- numeric(0)
 
 # start_params already separates the randomized starting parameters from estimates.
 em_initial_state <- list(
@@ -552,12 +561,23 @@ em_initial_state <- list(
 )
 
 likelihood <- new_likelihood
-while((abs(like_diff/likelihood) > em_control$convergence_tolerance |
-       iter_count < em_control$minimum_iterations) &
+
+while((abs(like_diff/likelihood) > em_control$convergence_tolerance ||
+       max_parameter_change > em_control$parameter_tolerance ||
+       iter_count < em_control$minimum_iterations) &&
       !em_control$run_only_survival){
+
+
   ##### EM iteration: bookkeeping #####
   start_time <- Sys.time()
   likelihood <- new_likelihood
+
+  sd_ref_scales <- make_em_reference_scales(emit_act, emit_light)
+
+  parameters_before <- pack_em_convergence_values(
+    init,params_tran_array,emit_act,emit_light,
+    corr_mat,nu_mat,beta_vec,surv_coef, period_len, sd_ref_scales
+  )
   
   ##### E-step: latent-class probabilities #####
   re_prob <- CalcProbRE(alpha,pi_l)
@@ -1147,6 +1167,17 @@ while((abs(like_diff/likelihood) > em_control$convergence_tolerance |
     }
       
   }
+
+  #parameter change saving
+  parameters_after <- pack_em_convergence_values(
+    init,params_tran_array,emit_act,emit_light,
+    corr_mat,nu_mat,beta_vec,surv_coef, period_len, sd_ref_scales
+  )
+  max_parameter_change <- max(abs(parameters_after - parameters_before))
+  parameter_change_history <- c(parameter_change_history,max_parameter_change)
+  print(paste("Maximum absolute parameter change:",signif(max_parameter_change,6)))
+
+
 } # end EM loop
 
 ######
@@ -1174,8 +1205,13 @@ em_convergence <- list(
   } else {
     is.finite(like_diff) &&
       abs(like_diff/likelihood) <= em_control$convergence_tolerance &&
+      is.finite(max_parameter_change) &&
+      max_parameter_change <= em_control$parameter_tolerance &&
       iter_count >= em_control$minimum_iterations
   },
+  parameter_tolerance = em_control$parameter_tolerance,
+  parameter_change_history = parameter_change_history,
+  maximum_iterations = em_control$maximum_iterations,
   completed_iterations = length(time_vec),
   iteration_counter = iter_count,
   final_likelihood = new_likelihood,
@@ -1204,11 +1240,24 @@ if (incl_surv != MODEL_TYPE_CODES[["joint"]]){
   
   surv_covar_risk_vec <- SurvCovarRiskVec(surv_covar,surv_coef)
   
-  bhaz_vec <- CalcBLHaz(surv_coef,beta_vec,survival_context$re_prob,
-                        surv_covar_risk_vec,survival_context$surv_event,
-                        survival_context$surv_time,survival_context$surv_covar, survival_context$sweights_vec)
-  bline_vec <- bhaz_vec[[1]]
-  cbline_vec <- bhaz_vec[[2]]
+  bhaz_vec <- CalcBLHazTwoStage(
+    beta_vec = beta_vec,
+    re_prob = survival_context$re_prob,
+    surv_covar_risk_vec = surv_covar_risk_vec,
+    surv_event = survival_context$surv_event,
+    surv_time = survival_context$surv_time,
+    sweights_vec = survival_context$sweights_vec
+  )
+  bline_vec <- bhaz_vec$bline_vec
+  cbline_vec <- bhaz_vec$cbline_vec
+}
+
+prediction_model_type <- if (
+  incl_surv == MODEL_TYPE_CODES[["joint"]]
+) {
+  "joint"
+} else {
+  "two_stage"
 }
 
   
@@ -1431,9 +1480,16 @@ if (leave_out){
           participant_id = id_old$SEQN[leave_out_inds],
           surv_time = surv_time_new,
           surv_event = surv_event_new,
-          risk_score =
+          risk_score = if (prediction_model_type == "joint"){
             log(drop(re_prob_new %*% exp(beta_vec))) +
-            surv_covar_risk_vec_new,
+              surv_covar_risk_vec_new
+          } else {
+            CalcTwoStageLinearPredictor(
+              beta_vec = beta_vec,
+              re_prob = re_prob_new,
+              surv_covar_risk_vec = surv_covar_risk_vec_new
+            )
+          },
           sweights_vec = sweights_vec_new,
           predicted_class = mix_assignment_pred,
           reference_class =
@@ -1480,6 +1536,8 @@ if (leave_out){
           # surv_time is the training-fold survival-time vector
           baseline_surv_time = surv_time,
 
+          model_type = prediction_model_type,
+
           interval_breaks = CV_SURVIVAL_INTERVAL_BREAKS
         )
 
@@ -1491,7 +1549,8 @@ if (leave_out){
         prediction_times = cv_ibs_eval_times
       )
 
-      cv_ibs_surv_prob <- CalcS(
+      cv_ibs_surv_prob <- CalcSurvivalProbabilities(
+        model_type = prediction_model_type,
         event_time = cv_ibs_eval_times,
         cbline_vec_new = cv_ibs_cbline,
         beta_vec = beta_vec,
@@ -1590,7 +1649,8 @@ if (leave_out){
       beta_vec = beta_vec,
       re_prob = re_prob_new,
       surv_covar_risk_vec = surv_covar_risk_vec_new,
-      sweights_vec = sweights_vec_new
+      sweights_vec = sweights_vec_new,
+      model_type = prediction_model_type
     )
 
 
@@ -1615,7 +1675,8 @@ if (leave_out){
       beta_vec = beta_vec,
       re_prob = re_prob_new,
       surv_covar_risk_vec = surv_covar_risk_vec_new,
-      baseline_surv_time = surv_time
+      baseline_surv_time = surv_time,
+      model_type = prediction_model_type
     )
     
     conf_mat_list[[leave_out_type]] <- conf_mat_ind
@@ -1699,17 +1760,24 @@ if (save_space){
 }
 
 #diagnostics
-ibs2 <- CalcIBS2(surv_time,surv_event,cbline_vec,beta_vec,re_prob,surv_covar_risk_vec)
+ibs2 <- CalcIBS2(
+  surv_time,surv_event,cbline_vec,beta_vec,re_prob,
+  surv_covar_risk_vec,
+  model_type = prediction_model_type
+)
 ibs <- CalcIBS(surv_time,surv_event,cbline_vec,beta_vec,surv_coef,surv_covar,
                re_prob,incl_surv,mix_assignment,surv_covar_risk_vec)
 cindex <- CalcCindex(
-  surv_time,surv_event,beta_vec,re_prob,surv_covar_risk_vec,sweights_vec
+  surv_time,surv_event,beta_vec,re_prob,surv_covar_risk_vec,sweights_vec,
+  model_type = prediction_model_type
 )
 diagnostics <- make_diagnostics_list(cindex = cindex,
                                      ibs = ibs,
                                      confusion_table = tab,
                                      ibs2 = ibs2)
 diagnostics$training <- list(cindex = cindex,ibs = ibs)
+diagnostics$survival_prediction_model_type <- prediction_model_type
+diagnostics$survival_prediction_formula_version <- 2L
 diagnostics$convergence <- em_convergence
 diagnostics$viterbi_skipped <- leave_out || class_selection_run
 
@@ -1752,7 +1820,8 @@ if (!real_data){
   test_mix_assignment <- apply(test_re_prob,1,which.max)
   test_cindex <- CalcCindex(
     test_data$surv_time,test_data$surv_event,beta_vec,test_re_prob,
-    test_surv_covar_risk_vec, sweights_vec
+    test_surv_covar_risk_vec, sweights_vec,
+    model_type = prediction_model_type
   )
   test_ibs <- CalcIBS(
     test_data$surv_time,test_data$surv_event,cbline_vec,beta_vec,
