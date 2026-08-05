@@ -7,21 +7,21 @@ array_end=100
 
 # key: simulation_days|num_people|fit_mix_num|model_type|emission_overlap
 # value: recommended_time_hours memory_limit_gb
-ResourceLimit["1|5000|5|joint|low"]="4 7"
-ResourceLimit["3|5000|5|joint|low"]="7 8"
-ResourceLimit["7|5000|5|joint|low"]="7 10"
+ResourceLimit["1|5000|5|joint|low"]="8 7"
+ResourceLimit["3|5000|5|joint|low"]="12 8"
+ResourceLimit["7|5000|5|joint|low"]="12 10"
 
-ResourceLimit["1|5000|5|joint|high"]="5 7"
-ResourceLimit["3|5000|5|joint|high"]="8 8"
-ResourceLimit["7|5000|5|joint|high"]="8 10"
+ResourceLimit["1|5000|5|joint|high"]="9 7"
+ResourceLimit["3|5000|5|joint|high"]="16 8"
+ResourceLimit["7|5000|5|joint|high"]="16 10"
 
-ResourceLimit["1|5000|5|two_stage|low"]="4 7"
-ResourceLimit["3|5000|5|two_stage|low"]="6 8"
-ResourceLimit["7|5000|5|two_stage|low"]="6 10"
+ResourceLimit["1|5000|5|two_stage|low"]="6 7"
+ResourceLimit["3|5000|5|two_stage|low"]="9 8"
+ResourceLimit["7|5000|5|two_stage|low"]="9 10"
 
-ResourceLimit["1|5000|5|two_stage|high"]="8 7"
-ResourceLimit["3|5000|5|two_stage|high"]="10 8"
-ResourceLimit["7|5000|5|two_stage|high"]="10 10"
+ResourceLimit["1|5000|5|two_stage|high"]="12 7"
+ResourceLimit["3|5000|5|two_stage|high"]="18 8"
+ResourceLimit["7|5000|5|two_stage|high"]="18 10"
 
 ResourceLimit["1|5000|2|joint|low"]="3 6"
 ResourceLimit["3|5000|2|joint|low"]="4 6"
