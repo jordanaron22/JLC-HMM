@@ -9,3 +9,8 @@ Routputs*
 RawData
 *.rda
 .png
+*.rds
+*.zip
+*.png
+Rlib
+*.Rhistory
