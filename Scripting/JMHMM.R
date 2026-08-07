@@ -563,7 +563,7 @@ em_initial_state <- list(
 likelihood <- new_likelihood
 
 while((abs(like_diff/likelihood) > em_control$convergence_tolerance ||
-       max_parameter_change > em_control$parameter_tolerance ||
+      #  max_parameter_change > em_control$parameter_tolerance ||
        iter_count < em_control$minimum_iterations) &&
       !em_control$run_only_survival){
 
@@ -1206,7 +1206,7 @@ em_convergence <- list(
     is.finite(like_diff) &&
       abs(like_diff/likelihood) <= em_control$convergence_tolerance &&
       is.finite(max_parameter_change) &&
-      max_parameter_change <= em_control$parameter_tolerance &&
+      # max_parameter_change <= em_control$parameter_tolerance &&
       iter_count >= em_control$minimum_iterations
   },
   parameter_tolerance = em_control$parameter_tolerance,
