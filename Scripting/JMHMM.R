@@ -553,7 +553,7 @@ em_initial_state <- list(
 )
 
 likelihood <- new_likelihood
-while((abs(like_diff/likelihood) > em_control$convergence_tolerance |
+while((abs(like_diff/likelihood) > (em_control$convergence_tolerance) |
        iter_count < em_control$minimum_iterations) &
       !em_control$run_only_survival){
   ##### EM iteration: bookkeeping #####

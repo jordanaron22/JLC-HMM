@@ -3,7 +3,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --mail-type=FAIL,TIME_LIMIT
 #SBATCH --mail-user=aron0064@umn.edu
-#SBATCH --array=1-1
+#SBATCH --array=51-100
 #SBATCH -A mfiecas
 #SBATCH -o LogFiles/%A_%a.out
 #SBATCH -e LogFiles/%A_%a.err
@@ -23,7 +23,7 @@ emission_overlap=${13:-low}
 time_limit_hours=${14:-NA}
 memory_limit_gb=${15:-NA}
 date
-path="/projects/standard/mfiecas/aron0064/JLC-HMM"
+path="/projects/standard/mfiecas/aron0064/JLC-HMM-Historical"
 cd $path/Routputs
 start_time=$(date +%s)
 module load R/4.4.0-openblas-rocky8

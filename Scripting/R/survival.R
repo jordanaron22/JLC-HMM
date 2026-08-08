@@ -347,68 +347,80 @@ CalcBeta <- function(beta_surv_coef, combined_covar_mat,surv_covar_risk_vec,
                      stop_crit = .1){
 
   if (incl_surv == MODEL_TYPE_CODES[["joint"]]) {
-    #used to use calcbetamanual but this is equivalent 
-    #safer to as it uses coxph
-    coxph_result <- CalcBetaCoxphJoint(
+    beta_result <- CalcBetaManual(
       beta_surv_coef = beta_surv_coef,
+      surv_covar_risk_vec = surv_covar_risk_vec,
+      stop_crit = JOINT_BETA_STOP_CRIT,
       survival_context = survival_context,
       surv_coef_len = surv_coef_len,
-      fit_mix_num = fit_mix_num,
-      one_step = FALSE
+      fit_mix_num = fit_mix_num
     )
 
-    beta_surv_coef_new <-
-      coxph_result$beta_surv_coef
-
-    conditional_se <-
-      coxph_result$conditional_se
-
-    expected_parameter_num <-
-      length(beta_surv_coef)
-
-    if (
-      length(beta_surv_coef_new) !=
-        expected_parameter_num
-    ) {
-      stop(
-        paste(
-          "CalcBetaCoxphJoint returned",
-          length(beta_surv_coef_new),
-          "coefficients, but",
-          expected_parameter_num,
-          "were expected"
-        )
-      )
-    }
-
-    if (any(!is.finite(beta_surv_coef_new))) {
-      stop(
-        "CalcBetaCoxphJoint returned nonfinite coefficients"
-      )
-    }
-
-    if (
-      length(conditional_se) !=
-        expected_parameter_num
-    ) {
-      stop(
-        paste(
-          "CalcBetaCoxphJoint returned",
-          length(conditional_se),
-          "standard errors, but",
-          expected_parameter_num,
-          "were expected"
-        )
-      )
-    }
-
-    return(
-      list(
-        beta_surv_coef_new,
-        conditional_se
-      )
-    )
+    return(beta_result)
   }
+  # if (incl_surv == MODEL_TYPE_CODES[["joint"]]) {
+  #   #used to use calcbetamanual but this is equivalent 
+  #   #safer to as it uses coxph
+  #   coxph_result <- CalcBetaCoxphJoint(
+  #     beta_surv_coef = beta_surv_coef,
+  #     survival_context = survival_context,
+  #     surv_coef_len = surv_coef_len,
+  #     fit_mix_num = fit_mix_num,
+  #     one_step = FALSE
+  #   )
+
+  #   beta_surv_coef_new <-
+  #     coxph_result$beta_surv_coef
+
+  #   conditional_se <-
+  #     coxph_result$conditional_se
+
+  #   expected_parameter_num <-
+  #     length(beta_surv_coef)
+
+  #   if (
+  #     length(beta_surv_coef_new) !=
+  #       expected_parameter_num
+  #   ) {
+  #     stop(
+  #       paste(
+  #         "CalcBetaCoxphJoint returned",
+  #         length(beta_surv_coef_new),
+  #         "coefficients, but",
+  #         expected_parameter_num,
+  #         "were expected"
+  #       )
+  #     )
+  #   }
+
+  #   if (any(!is.finite(beta_surv_coef_new))) {
+  #     stop(
+  #       "CalcBetaCoxphJoint returned nonfinite coefficients"
+  #     )
+  #   }
+
+  #   if (
+  #     length(conditional_se) !=
+  #       expected_parameter_num
+  #   ) {
+  #     stop(
+  #       paste(
+  #         "CalcBetaCoxphJoint returned",
+  #         length(conditional_se),
+  #         "standard errors, but",
+  #         expected_parameter_num,
+  #         "were expected"
+  #       )
+  #     )
+  #   }
+
+  #   return(
+  #     list(
+  #       beta_surv_coef_new,
+  #       conditional_se
+  #     )
+  #   )
+  # }
 
 
 
