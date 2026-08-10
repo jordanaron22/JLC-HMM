@@ -531,7 +531,24 @@ CalcBeta <- function(beta_surv_coef, combined_covar_mat,surv_covar_risk_vec,
                      stop_crit = .1){
 
   if (incl_surv == MODEL_TYPE_CODES[["joint"]]) {
-    #used to use calcbetamanual but this is equivalent 
+
+
+    #old way of calcbetamanual
+    # if (incl_surv == MODEL_TYPE_CODES[["joint"]]) {
+    #   beta_result <- CalcBetaManual(
+    #     beta_surv_coef = beta_surv_coef,
+    #     surv_covar_risk_vec = surv_covar_risk_vec,
+    #     stop_crit = JOINT_BETA_STOP_CRIT,
+    #     survival_context = survival_context,
+    #     surv_coef_len = surv_coef_len,
+    #     fit_mix_num = fit_mix_num
+    #   )
+
+    #   return(beta_result)
+    # }
+
+
+    #used to use calcbetamanual but this is equivalent  (maybe not so equivalent after all)
     #safer to as it uses coxph
     coxph_result <- CalcBetaCoxphJoint(
       beta_surv_coef = beta_surv_coef,
