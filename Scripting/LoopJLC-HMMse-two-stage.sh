@@ -6,12 +6,18 @@ array_start=1
 array_end=100
 
 # key: simulation_days|num_people|fit_mix_num|model_type|emission_overlap
+# emission_overlap: low, mid (medium), or high
 # value: recommended_time_hours memory_limit_gb
 # These initially mirror the joint-SE requests. Adjust them after reviewing
 # the first completed Murphy-Topel jobs for each scenario.
 ResourceLimit["1|5000|5|two_stage|low"]="4 4"
 ResourceLimit["3|5000|5|two_stage|low"]="16 10"
 ResourceLimit["7|5000|5|two_stage|low"]="30 20"
+
+# Use the high-overlap limits for mid until dedicated timing data are available.
+ResourceLimit["1|5000|5|two_stage|mid"]="5 5"
+ResourceLimit["3|5000|5|two_stage|mid"]="16 10"
+ResourceLimit["7|5000|5|two_stage|mid"]="52 20"
 
 ResourceLimit["1|5000|5|two_stage|high"]="5 5"
 ResourceLimit["3|5000|5|two_stage|high"]="16 10"
@@ -22,6 +28,10 @@ ScenarioKeys=(
     "3|5000|5|two_stage|low"
     "7|5000|5|two_stage|low"
 
+    "1|5000|5|two_stage|mid"
+    "3|5000|5|two_stage|mid"
+    "7|5000|5|two_stage|mid"
+
     "1|5000|5|two_stage|high"
     "3|5000|5|two_stage|high"
     "7|5000|5|two_stage|high"
@@ -29,9 +39,9 @@ ScenarioKeys=(
 
 manifest_file="expected_two_stage_mt_jobs.tsv"
 run_id=$(date +"%Y%m%d_%H%M%S")
-h2_eps="1e-5"
+h2_eps="1e-4"
 # format_eps_label(1e-5) in JLC-HMMse-two-stage.R produces 1e-05.
-h2_eps_file_label="1e-05"
+h2_eps_file_label="1e-04"
 retain_score_matrices=false
 
 mkdir -p "$(dirname "$manifest_file")"

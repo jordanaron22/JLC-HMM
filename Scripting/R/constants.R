@@ -39,7 +39,7 @@ CV_LEAVE_OUT_SCENARIOS <- c(sequence_only = 1, no_light = 2,
                             no_activity = 3, no_transition = 4,
                             activity_only = 5, standard = 6)
 BASE_STOP_CRIT <- 1e-8
-PARAMETER_STOP_CRIT <- 5e-4
+PARAMETER_STOP_CRIT <- 1e-3
 MIN_EM_ITERATIONS <- 5
 INTERIM_SAVE_EVERY <- 10
 REORDER_STOP_CRIT_MULTIPLIER <- 10
@@ -48,10 +48,10 @@ REORDER_STOP_CRIT_MULTIPLIER <- 10
 # recompute baseline hazards, forward/backward probabilities, and likelihood.
 JOINT_BETA_STOP_CRIT <- 100
 
-EMISSION_OVERLAP_FACTOR <- c(low = 1, high = 0.75)
+EMISSION_OVERLAP_FACTOR <- c(low = 1, mid = 0.75, high = 0.5)
 DEFAULT_SIMULATION_DAYS <- 1
 DEFAULT_SIMULATION_PEOPLE <- 5000
-DEFAULT_MISSING_PERC <- 0.2
+DEFAULT_MISSING_PERC <- 0
 
 SAVED_SECTION_SLOT <- c(true_params = 1, est_params = 2, bic = 3,
                         leave_out = 4, simulated_hmm = 5, diagnostics = 6,

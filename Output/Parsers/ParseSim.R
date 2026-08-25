@@ -6,6 +6,7 @@ input_dir <- if (length(args) >= 1){
   args[[1]]
 } else {
   file.path("Output","Routputs","Routputs")
+  # file.path("Output","Routputs","Oakes")
 }
 
 output_file <- if (length(args) >= 2){
@@ -498,4 +499,6 @@ adjust_submissions <- scenario_counts |> dplyr::select(fit_mix_num,model_type,si
 
 adjust_submissions
 
-adjust_submissions|> filter(fit_mix_num == 5)
+adjust_submissions|> filter(fit_mix_num == 5) |> arrange(model_type,factor(emission_overlap, levels =  c('low','med','high')),
+                                                        simulation_days)
+

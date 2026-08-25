@@ -40,7 +40,6 @@ library(numDeriv)
 library(Matrix)
 library(Hmisc)
 
-parameter_wiggle <- 1e-5
 parameter_wiggle <- .005
 
 source_jmhmm_module <- function(module_file){
@@ -85,6 +84,7 @@ compile_cpp_helpers <- function(){
 find_saved_model_file <- function(model_name){
   candidate_paths <- c(model_name,
                        file.path("Routputs",model_name),
+                       file.path("Output","Routputs","Routputs",model_name),
                        file.path("Output","Routputs","RoutputsFull",
                                  model_name),
                        file.path("..","Routputs",model_name))
@@ -232,164 +232,415 @@ safe_solve <- function(A,B = NULL){
   )
 }
 
-repair_information_for_vcov <- function(I_obs_sym,
-                                        parameter_map = NULL,
-                                        rel_tol = 1e-5,
-                                        floor_rel = 1e-7) {
-  I_obs_sym <- 0.5 * (I_obs_sym + t(I_obs_sym))
+# Repair the longitudinal information before it is used in either Murphy-Topel
+# target solve.  The diagonal scaling makes the near-PD projection insensitive
+# to the units of the longitudinal parameters.  The unscaled raw and repaired
+# matrices are retained for diagnostics.
+solve_information_for_targets <- function(
+    I1,D,C12){
+  I1 <- 0.5 * (as.matrix(I1) + t(as.matrix(I1)))
+  D <- as.matrix(D)
+  C12 <- as.matrix(C12)
 
-  eig_raw <- eigen(I_obs_sym,symmetric = TRUE)
+  p <- nrow(I1)
+  if (ncol(I1) != p || ncol(D) != p || nrow(C12) != p ||
+      ncol(C12) != nrow(D)){
+    stop("Target information solve received incompatible dimensions")
+  }
+  if (any(!is.finite(I1)) || any(!is.finite(D)) ||
+      any(!is.finite(C12))){
+    stop("Target information solve received nonfinite values")
+  }
+
+  eig_raw <- eigen(I1,symmetric = TRUE)
   max_eval <- max(abs(eig_raw$values))
-  min_eval <- min(eig_raw$values)
-  rel_min <- min_eval / max_eval
-  num_negative <- sum(eig_raw$values <= 0)
-
-  raw_vcov <- safe_solve(I_obs_sym)
-  raw_vcov_diag <- if (is.null(raw_vcov)) {
-    rep(NA_real_,nrow(I_obs_sym))
-  } else {
-    diag(raw_vcov)
-  }
-
-  raw_negative_diag_idx <- which(raw_vcov_diag < 0)
-
-  raw_negative_diag_names <- if (!is.null(parameter_map) &&
-                                 length(raw_negative_diag_idx) > 0) {
-    paste(parameter_map$block[raw_negative_diag_idx],
-          parameter_map$param_name[raw_negative_diag_idx],
-          raw_negative_diag_idx,
-          sep = ".")
-  } else {
-    names(raw_vcov_diag)[raw_negative_diag_idx]
-  }
-
-  if (rel_min < -rel_tol) {
+  if (!is.finite(max_eval) || max_eval <= 0){
     return(list(
-      I_obs_for_vcov = I_obs_sym,
-      vcov = NULL,
-      se = rep(NA_real_,nrow(I_obs_sym)),
-      repaired = FALSE,
       failed = TRUE,
-      repair_method = "failed_rel_min_too_negative",
-      rel_tol = rel_tol,
-      floor_rel = floor_rel,
-      min_eigen_raw = min_eval,
-      max_eigen_raw = max_eval,
-      rel_min_raw = rel_min,
-      num_negative_raw = num_negative,
-      eigen_floor = NA_real_,
-      min_eigen_repaired = NA_real_,
-      max_eigen_repaired = NA_real_,
-      rel_min_repaired = NA_real_,
-      raw_vcov_diag = raw_vcov_diag,
-      raw_negative_diag_idx = raw_negative_diag_idx,
-      raw_negative_diag_names = raw_negative_diag_names
+      failure_reason = "longitudinal_information_has_no_finite_scale",
+      I1_for_solve = NULL,
+      solve_D = NULL,
+      solve_C12 = NULL,
+      diagnostics = list(method = "failed",
+                         used_target_restriction = FALSE)
     ))
   }
 
-  eigen_floor <- floor_rel * max_eval
+  near_pd_formals <- formals(Matrix::nearPD)
+  near_pd_eig_tol <- as.numeric(near_pd_formals$eig.tol)
+  near_pd_conv_tol <- as.numeric(near_pd_formals$conv.tol)
+  near_pd_posd_tol <- as.numeric(near_pd_formals$posd.tol)
 
-  if (min_eval <= eigen_floor) {
-    values_repaired <- pmax(eig_raw$values,eigen_floor)
-
-    I_obs_for_vcov <- eig_raw$vectors %*%
-      diag(values_repaired,nrow = length(values_repaired)) %*%
-      t(eig_raw$vectors)
-
-    I_obs_for_vcov <- 0.5 * (I_obs_for_vcov + t(I_obs_for_vcov))
-    repaired <- TRUE
-    repair_method <- "eigen_floor"
+  max_positive_eval <- max(eig_raw$values)
+  eigen_cutoff <- if (max_positive_eval > 0){
+    near_pd_eig_tol * max_positive_eval
   } else {
-    I_obs_for_vcov <- I_obs_sym
-    repaired <- FALSE
-    repair_method <- "none"
+    0
+  }
+  retained_raw <- eig_raw$values > eigen_cutoff
+
+  raw_condition_number <- if (min(abs(eig_raw$values)) == 0){
+      Inf
+    } else {
+      max_eval / min(abs(eig_raw$values))
+    }
+
+  diag_raw <- diag(I1)
+  use_diagonal_scaling <- all(is.finite(diag_raw)) && all(diag_raw > 0)
+  information_scale <- if (use_diagonal_scaling){
+    sqrt(diag_raw)
+  } else {
+    rep(1,nrow(I1))
+  }
+  I1_scaled <- sweep(sweep(I1,1,information_scale,"/"),
+                     2,information_scale,"/")
+  I1_scaled <- 0.5 * (I1_scaled + t(I1_scaled))
+  eig_scaled_raw <- eigen(I1_scaled,symmetric = TRUE)
+  max_scaled_positive_eval <- max(eig_scaled_raw$values)
+  scaled_eigen_cutoff <- if (max_scaled_positive_eval > 0){
+    near_pd_eig_tol * max_scaled_positive_eval
+  } else {
+    0
+  }
+  retained_scaled <- eig_scaled_raw$values > scaled_eigen_cutoff
+  discarded_scaled <- !retained_scaled
+
+  # R is the information in standardized parameter coordinates.  D must use
+  # the corresponding coordinates for this diagnostic projection.
+  D_scaled <- sweep(D,2,information_scale,"/")
+  target_norm <- sqrt(sum(D_scaled^2))
+  discarded_target_norm <- if (any(discarded_scaled)){
+    sqrt(sum((D_scaled %*%
+                eig_scaled_raw$vectors[,discarded_scaled,drop = FALSE])^2))
+  } else {
+    0
+  }
+  target_projection_ratio <- if (target_norm == 0){
+    0
+  } else {
+    discarded_target_norm / target_norm
   }
 
-  eig_repaired <- eigen(I_obs_for_vcov,symmetric = TRUE,
+  # Use the same relative classification as nearPD(). This also regularizes
+  # positive but numerically null directions that nearPD() treats as zero.
+  repair_needed <- min(eig_scaled_raw$values) <= scaled_eigen_cutoff
+
+  near_pd_converged <- NA
+  near_pd_iterations <- NA_integer_
+  near_pd_norm_f_scaled <- 0
+  I1_scaled_for_solve <- I1_scaled
+  repair_method <- "none"
+
+  if (repair_needed){
+    near_pd <- tryCatch(
+      Matrix::nearPD(
+        I1_scaled,
+        corr = use_diagonal_scaling,
+        keepDiag = use_diagonal_scaling
+      ),
+      error = function(e) NULL
+    )
+    if (is.null(near_pd) || !isTRUE(near_pd$converged)){
+      return(list(
+        failed = TRUE,
+        failure_reason = "longitudinal_information_nearPD_failed",
+        I1_for_solve = NULL,
+        solve_D = NULL,
+        solve_C12 = NULL,
+        diagnostics = list(
+          method = "nearPD_failed",
+          repaired = FALSE,
+          full_information_positive = all(eig_raw$values > 0),
+          min_eigen_raw = min(eig_raw$values),
+          max_eigen_raw = max(eig_raw$values),
+          rel_min_raw = min(eig_raw$values) / max_eval,
+          target_projection_ratio = target_projection_ratio,
+          near_pd_eig_tol = near_pd_eig_tol,
+          near_pd_conv_tol = near_pd_conv_tol,
+          near_pd_posd_tol = near_pd_posd_tol
+        )
+      ))
+    }
+    I1_scaled_for_solve <- as.matrix(near_pd$mat)
+    I1_scaled_for_solve <- 0.5 *
+      (I1_scaled_for_solve + t(I1_scaled_for_solve))
+    near_pd_converged <- near_pd$converged
+    near_pd_iterations <- near_pd$iterations
+    near_pd_norm_f_scaled <- near_pd$normF
+    repair_method <- if (use_diagonal_scaling){
+      "scaled_nearPD_information_solve"
+    } else {
+      "nearPD_information_solve"
+    }
+  }
+
+  I1_for_solve <- sweep(sweep(I1_scaled_for_solve,1,information_scale,"*"),
+                        2,information_scale,"*")
+  I1_for_solve <- 0.5 * (I1_for_solve + t(I1_for_solve))
+  dimnames(I1_for_solve) <- dimnames(I1)
+  eig_repaired <- eigen(I1_for_solve,symmetric = TRUE,
                         only.values = TRUE)$values
+  eig_scaled_repaired <- eigen(I1_scaled_for_solve,symmetric = TRUE,
+                               only.values = TRUE)$values
+  if (any(eig_scaled_repaired <= 0)){
+    return(list(
+      failed = TRUE,
+      failure_reason = "longitudinal_information_not_positive_after_repair",
+      I1_for_solve = I1_for_solve,
+      I1_scaled_for_solve = I1_scaled_for_solve,
+      information_scale = information_scale,
+      solve_D = NULL,
+      solve_C12 = NULL,
+      diagnostics = list(
+        method = if (repair_needed) repair_method else "direct_target_solve",
+        repaired = repair_needed,
+        min_eigen_raw = min(eig_raw$values),
+        min_eigen_scaled_raw = min(eig_scaled_raw$values),
+        min_eigen_repaired = min(eig_repaired),
+        min_eigen_scaled_repaired = min(eig_scaled_repaired),
+        near_pd_eig_tol = near_pd_eig_tol,
+        near_pd_conv_tol = near_pd_conv_tol,
+        near_pd_posd_tol = near_pd_posd_tol
+      )
+    ))
+  }
+  repaired_max_eval <- max(abs(eig_repaired))
+  repaired_condition_number <- if (min(eig_repaired) <= 0){
+    Inf
+  } else {
+    repaired_max_eval / min(eig_repaired)
+  }
+  repaired_condition_number_scaled <-
+    max(eig_scaled_repaired) / min(eig_scaled_repaired)
+  repair_norm_f <- sqrt(sum((I1_for_solve - I1)^2))
+  raw_norm_f <- sqrt(sum(I1^2))
 
-  vcov <- solve(I_obs_for_vcov)
-  se <- sqrt(diag(vcov))
-
-  list(
-    I_obs_for_vcov = I_obs_for_vcov,
-    vcov = vcov,
-    se = se,
-    repaired = repaired,
-    failed = FALSE,
+  diagnostics <- list(
+    method = if (repair_needed) repair_method else "direct_target_solve",
+    repaired = repair_needed,
     repair_method = repair_method,
-    rel_tol = rel_tol,
-    floor_rel = floor_rel,
-    min_eigen_raw = min_eval,
-    max_eigen_raw = max_eval,
-    rel_min_raw = rel_min,
-    num_negative_raw = num_negative,
-    eigen_floor = eigen_floor,
+    used_target_restriction = FALSE,
+    full_information_positive = all(eig_raw$values > 0),
+    condition_number = raw_condition_number,
+    condition_number_repaired = repaired_condition_number,
+    condition_number_scaled_repaired = repaired_condition_number_scaled,
+    near_pd_eig_tol = near_pd_eig_tol,
+    near_pd_conv_tol = near_pd_conv_tol,
+    near_pd_posd_tol = near_pd_posd_tol,
+    eigen_cutoff = eigen_cutoff,
+    raw_retained_rank = sum(retained_raw),
+    scaled_retained_rank = sum(retained_scaled),
+    retained_rank = sum(retained_scaled),
+    discarded_rank = sum(discarded_scaled),
+    target_norm = target_norm,
+    discarded_target_norm = discarded_target_norm,
+    target_projection_ratio = target_projection_ratio,
+    min_eigen_raw = min(eig_raw$values),
+    max_eigen_raw = max(eig_raw$values),
+    rel_min_raw = min(eig_raw$values) / max_eval,
+    use_diagonal_scaling = use_diagonal_scaling,
+    scaled_eigen_cutoff = scaled_eigen_cutoff,
+    min_eigen_scaled_raw = min(eig_scaled_raw$values),
+    max_eigen_scaled_raw = max(eig_scaled_raw$values),
+    min_eigen_scaled_repaired = min(eig_scaled_repaired),
+    max_eigen_scaled_repaired = max(eig_scaled_repaired),
     min_eigen_repaired = min(eig_repaired),
     max_eigen_repaired = max(eig_repaired),
-    rel_min_repaired = min(eig_repaired) / max(abs(eig_repaired)),
-    raw_vcov_diag = raw_vcov_diag,
-    raw_negative_diag_idx = raw_negative_diag_idx,
-    raw_negative_diag_names = raw_negative_diag_names
+    rel_min_repaired = min(eig_repaired) / repaired_max_eval,
+    near_pd_converged = near_pd_converged,
+    near_pd_iterations = near_pd_iterations,
+    near_pd_norm_f_scaled = near_pd_norm_f_scaled,
+    repair_norm_f = repair_norm_f,
+    relative_repair_norm_f = if (raw_norm_f == 0){
+      NA_real_
+    } else {
+      repair_norm_f / raw_norm_f
+    }
+  )
+
+  target_rhs <- cbind(t(D),C12)
+  target_rhs_scaled <- sweep(target_rhs,1,information_scale,"/")
+  scaled_solution <- safe_solve(I1_scaled_for_solve,target_rhs_scaled)
+  direct_solution <- if (is.null(scaled_solution)){
+    NULL
+  } else {
+    sweep(scaled_solution,1,information_scale,"/")
+  }
+  if (!is.null(direct_solution) && all(is.finite(direct_solution))){
+    q <- nrow(D)
+    diagnostics$relative_solve_residual_scaled <-
+      max(abs(I1_scaled_for_solve %*% scaled_solution -
+                target_rhs_scaled)) /
+      max(1,max(abs(target_rhs_scaled)))
+    diagnostics$relative_solve_residual_original_scale <-
+      max(abs(I1_for_solve %*% direct_solution - target_rhs)) /
+      max(1,max(abs(target_rhs)))
+    diagnostics$relative_solve_residual <-
+      diagnostics$relative_solve_residual_scaled
+    diagnostics$solve_residual_tolerance <- 1e-6
+    if (!is.finite(diagnostics$relative_solve_residual) ||
+        diagnostics$relative_solve_residual >
+          diagnostics$solve_residual_tolerance){
+      return(list(
+        failed = TRUE,
+        failure_reason = "longitudinal_information_solve_residual_too_large",
+        I1_for_solve = I1_for_solve,
+        solve_D = NULL,
+        solve_C12 = NULL,
+        diagnostics = diagnostics
+      ))
+    }
+    return(list(
+      failed = FALSE,
+      failure_reason = NA_character_,
+      I1_for_solve = I1_for_solve,
+      I1_scaled_for_solve = I1_scaled_for_solve,
+      information_scale = information_scale,
+      solve_D = direct_solution[,seq_len(q),drop = FALSE],
+      solve_C12 = direct_solution[,q + seq_len(q),drop = FALSE],
+      diagnostics = diagnostics
+    ))
+  }
+
+  list(
+    failed = TRUE,
+    failure_reason = "repaired_longitudinal_information_solve_failed",
+    I1_for_solve = I1_for_solve,
+    I1_scaled_for_solve = I1_scaled_for_solve,
+    information_scale = information_scale,
+    solve_D = NULL,
+    solve_C12 = NULL,
+    diagnostics = diagnostics
   )
 }
 
-repair_covariance_if_tiny_negative <- function(V,rel_tol = 1e-6,
-                                               floor_rel = 1e-10){
-  V <- 0.5 * (V + t(V))
-  eig_raw <- eigen(V,symmetric = TRUE)
-  max_eval <- max(abs(eig_raw$values))
-  min_eval <- min(eig_raw$values)
+repair_target_covariance_near_pd <- function(V){
+  V_raw <- 0.5 * (as.matrix(V) + t(as.matrix(V)))
+
+  if (any(!is.finite(V_raw))){
+    stop("Target covariance contains nonfinite values")
+  }
+
+  eig_raw <- eigen(V_raw,symmetric = TRUE,only.values = TRUE)$values
+  max_eval <- max(abs(eig_raw))
+  min_eval <- min(eig_raw)
   rel_min <- if (max_eval == 0) NA_real_ else min_eval / max_eval
+  raw_norm_f <- sqrt(sum(V_raw^2))
+  near_pd_formals <- formals(Matrix::nearPD)
+  near_pd_eig_tol <- as.numeric(near_pd_formals$eig.tol)
+  near_pd_conv_tol <- as.numeric(near_pd_formals$conv.tol)
+  near_pd_posd_tol <- as.numeric(near_pd_formals$posd.tol)
 
-  if (min_eval >= 0){
-    return(list(vcov = V,
-                raw_vcov = V,
-                repaired = FALSE,
-                failed = FALSE,
-                repair_method = "none",
-                min_eigen_raw = min_eval,
-                max_eigen_raw = max_eval,
-                rel_min_raw = rel_min,
-                min_eigen_repaired = min_eval,
-                max_eigen_repaired = max_eval,
-                rel_min_repaired = rel_min))
+  if (all(eig_raw > 0)){
+    return(list(
+      vcov = V_raw,
+      raw_vcov = V_raw,
+      repaired = FALSE,
+      failed = FALSE,
+      repair_method = "none",
+      near_pd_norm_f = 0,
+      relative_repair_norm_f = 0,
+      near_pd_converged = NA,
+      near_pd_iterations = NA_integer_,
+      near_pd_eig_tol = near_pd_eig_tol,
+      near_pd_conv_tol = near_pd_conv_tol,
+      near_pd_posd_tol = near_pd_posd_tol,
+      min_eigen_raw = min_eval,
+      max_eigen_raw = max_eval,
+      rel_min_raw = rel_min,
+      min_eigen_repaired = min_eval,
+      max_eigen_repaired = max_eval,
+      rel_min_repaired = rel_min
+    ))
   }
 
-  if (!is.na(rel_min) && rel_min < -rel_tol){
-    return(list(vcov = V,
-                raw_vcov = V,
-                repaired = FALSE,
-                failed = TRUE,
-                repair_method = "failed_rel_min_too_negative",
-                min_eigen_raw = min_eval,
-                max_eigen_raw = max_eval,
-                rel_min_raw = rel_min,
-                min_eigen_repaired = NA_real_,
-                max_eigen_repaired = NA_real_,
-                rel_min_repaired = NA_real_))
+  near_pd <- tryCatch(
+    Matrix::nearPD(V_raw,corr = FALSE),
+    error = function(e) NULL
+  )
+
+  if (is.null(near_pd) || !isTRUE(near_pd$converged)){
+    return(list(
+      vcov = NULL,
+      raw_vcov = V_raw,
+      repaired = FALSE,
+      failed = TRUE,
+      repair_method = "nearPD_failed",
+      near_pd_norm_f = NA_real_,
+      relative_repair_norm_f = NA_real_,
+      near_pd_converged = if (is.null(near_pd)) NA else near_pd$converged,
+      near_pd_iterations = if (is.null(near_pd)) {
+        NA_integer_
+      } else {
+        near_pd$iterations
+      },
+      near_pd_eig_tol = near_pd_eig_tol,
+      near_pd_conv_tol = near_pd_conv_tol,
+      near_pd_posd_tol = near_pd_posd_tol,
+      min_eigen_raw = min_eval,
+      max_eigen_raw = max_eval,
+      rel_min_raw = rel_min,
+      min_eigen_repaired = NA_real_,
+      max_eigen_repaired = NA_real_,
+      rel_min_repaired = NA_real_
+    ))
   }
 
-  eigen_floor <- floor_rel * max_eval
-  values_repaired <- pmax(eig_raw$values,eigen_floor)
-  V_repaired <- eig_raw$vectors %*%
-    diag(values_repaired,nrow = length(values_repaired)) %*%
-    t(eig_raw$vectors)
+  V_repaired <- as.matrix(near_pd$mat)
   V_repaired <- 0.5 * (V_repaired + t(V_repaired))
   eig_repaired <- eigen(V_repaired,symmetric = TRUE,
                         only.values = TRUE)$values
+  if (any(eig_repaired <= 0)){
+    return(list(
+      vcov = NULL,
+      raw_vcov = V_raw,
+      repaired = FALSE,
+      failed = TRUE,
+      repair_method = "nearPD_not_positive_definite",
+      near_pd_norm_f = near_pd$normF,
+      relative_repair_norm_f = if (raw_norm_f == 0) {
+        NA_real_
+      } else {
+        near_pd$normF / raw_norm_f
+      },
+      near_pd_converged = near_pd$converged,
+      near_pd_iterations = near_pd$iterations,
+      near_pd_eig_tol = near_pd_eig_tol,
+      near_pd_conv_tol = near_pd_conv_tol,
+      near_pd_posd_tol = near_pd_posd_tol,
+      min_eigen_raw = min_eval,
+      max_eigen_raw = max_eval,
+      rel_min_raw = rel_min,
+      min_eigen_repaired = min(eig_repaired),
+      max_eigen_repaired = max(eig_repaired),
+      rel_min_repaired = min(eig_repaired) / max(abs(eig_repaired))
+    ))
+  }
 
-  list(vcov = V_repaired,
-       raw_vcov = V,
-       repaired = TRUE,
-       failed = FALSE,
-       repair_method = "eigen_floor",
-       min_eigen_raw = min_eval,
-       max_eigen_raw = max_eval,
-       rel_min_raw = rel_min,
-       min_eigen_repaired = min(eig_repaired),
-       max_eigen_repaired = max(eig_repaired),
-       rel_min_repaired = min(eig_repaired) / max(abs(eig_repaired)))
+  list(
+    vcov = V_repaired,
+    raw_vcov = V_raw,
+    repaired = TRUE,
+    failed = FALSE,
+    repair_method = "nearPD",
+    near_pd_norm_f = near_pd$normF,
+    relative_repair_norm_f = if (raw_norm_f == 0) {
+      NA_real_
+    } else {
+      near_pd$normF / raw_norm_f
+    },
+    near_pd_converged = near_pd$converged,
+    near_pd_iterations = near_pd$iterations,
+    near_pd_eig_tol = near_pd_eig_tol,
+    near_pd_conv_tol = near_pd_conv_tol,
+    near_pd_posd_tol = near_pd_posd_tol,
+    min_eigen_raw = min_eval,
+    max_eigen_raw = max_eval,
+    rel_min_raw = rel_min,
+    min_eigen_repaired = min(eig_repaired),
+    max_eigen_repaired = max(eig_repaired),
+    rel_min_repaired = min(eig_repaired) / max(abs(eig_repaired))
+  )
 }
 
 matrix_max_asymmetry <- function(mat){
@@ -520,29 +771,34 @@ build_simulation_gamma_truth <- function(coef_names,true_params,fit_mix_num){
   truth
 }
 
-check_dimensions <- function(I1,V1,D,S1,S2,C12,V_MT){
+check_dimensions <- function(I1,D,I1_solve_D,I1_solve_C12,
+                             S1,S2,C12,V_MT){
   p <- nrow(I1)
   q <- nrow(D)
   n <- nrow(S1)
   data.frame(
-    quantity = c("I1","V1","D","S1","S2","C12","V_MT"),
+    quantity = c("I1","D","I1_solve_D","I1_solve_C12",
+                 "S1","S2","C12","V_MT"),
     observed = c(paste(dim(I1),collapse = "x"),
-                 paste(dim(V1),collapse = "x"),
                  paste(dim(D),collapse = "x"),
+                 paste(dim(I1_solve_D),collapse = "x"),
+                 paste(dim(I1_solve_C12),collapse = "x"),
                  paste(dim(S1),collapse = "x"),
                  paste(dim(S2),collapse = "x"),
                  paste(dim(C12),collapse = "x"),
                  paste(dim(V_MT),collapse = "x")),
     expected = c(paste(c(p,p),collapse = "x"),
-                 paste(c(p,p),collapse = "x"),
                  paste(c(q,p),collapse = "x"),
+                 paste(c(p,q),collapse = "x"),
+                 paste(c(p,q),collapse = "x"),
                  paste(c(n,p),collapse = "x"),
                  paste(c(n,q),collapse = "x"),
                  paste(c(p,q),collapse = "x"),
                  paste(c(q,q),collapse = "x")),
     passed = c(all(dim(I1) == c(p,p)),
-               all(dim(V1) == c(p,p)),
                all(dim(D) == c(q,p)),
+               all(dim(I1_solve_D) == c(p,q)),
+               all(dim(I1_solve_C12) == c(p,q)),
                all(dim(S1) == c(n,p)),
                all(dim(S2) == c(n,q)),
                all(dim(C12) == c(p,q)),
@@ -685,25 +941,21 @@ I1_raw <- -0.5 * (H_obs_long + t(H_obs_long))
 rownames(I1_raw) <- names(theta_pack$theta)[long_idx]
 colnames(I1_raw) <- names(theta_pack$theta)[long_idx]
 
-I1_repair <- repair_information_for_vcov(
-  I_obs_sym = I1_raw,
-  parameter_map = long_map,
-  rel_tol = 1e-5,
-  floor_rel = 1e-7
-)
-if (isTRUE(I1_repair$failed) || is.null(I1_repair$vcov)){
-  stop("Longitudinal observed information repair failed")
+V_naive_raw <- as.matrix(cox_fit_base$var)
+V_naive_raw <- 0.5 * (V_naive_raw + t(V_naive_raw))
+V_naive_repair <- repair_target_covariance_near_pd(V_naive_raw)
+if (isTRUE(V_naive_repair$failed)){
+  stop("Could not repair naive Cox covariance")
 }
-I1_for_vcov <- I1_repair$I_obs_for_vcov
-V1 <- I1_repair$vcov
-
-V_naive <- as.matrix(cox_fit_base$var)
+V_naive <- V_naive_repair$vcov
 I2 <- safe_solve(V_naive)
-if (is.null(I2)){
+if (is.null(I2) || any(!is.finite(I2))){
   stop("Could not invert naive Cox covariance")
 }
 rownames(V_naive) <- names(gamma_hat)
 colnames(V_naive) <- names(gamma_hat)
+rownames(V_naive_raw) <- names(gamma_hat)
+colnames(V_naive_raw) <- names(gamma_hat)
 rownames(I2) <- names(gamma_hat)
 colnames(I2) <- names(gamma_hat)
 
@@ -724,29 +976,98 @@ C12 <- crossprod(S1,S2)
 rownames(C12) <- colnames(S1)
 colnames(C12) <- colnames(S2)
 
-C_if <- V1 %*% C12 %*% V_naive
+I1_target_solve <- solve_information_for_targets(
+  I1 = I1_raw,
+  D = D,
+  C12 = C12
+)
+if (isTRUE(I1_target_solve$failed)){
+  stop(paste("Longitudinal information repair/solve failed:",
+             I1_target_solve$failure_reason))
+}
+print(paste("Longitudinal information method:",
+            I1_target_solve$diagnostics$method,
+            "scaled retained rank:",I1_target_solve$diagnostics$retained_rank,
+            "of",nrow(I1_raw)))
+if (isTRUE(I1_target_solve$diagnostics$repaired)){
+  print(paste("Longitudinal information nearPD relative Frobenius change:",
+              signif(I1_target_solve$diagnostics$relative_repair_norm_f,6)))
+}
+I1_for_solve <- I1_target_solve$I1_for_solve
+I1_scaled_for_solve <- I1_target_solve$I1_scaled_for_solve
+I1_information_scale <- I1_target_solve$information_scale
+I1_solve_D <- I1_target_solve$solve_D
+I1_solve_C12 <- I1_target_solve$solve_C12
+
+C_if <- I1_solve_C12 %*% V_naive
 rownames(C_if) <- colnames(S1)
 colnames(C_if) <- names(gamma_hat)
 
-delta_increment <- D %*% V1 %*% t(D)
-cross_increment <- D %*% C_if + t(C_if) %*% t(D)
+delta_increment_raw <- D %*% I1_solve_D
+delta_increment_raw <- 0.5 * (delta_increment_raw + t(delta_increment_raw))
+rownames(delta_increment_raw) <- names(gamma_hat)
+colnames(delta_increment_raw) <- names(gamma_hat)
+
+delta_increment_eigenvalues <- matrix_eigenvalues(delta_increment_raw)
+delta_increment_min_eigen <- min(delta_increment_eigenvalues)
+delta_increment_max_abs_eigen <- max(abs(delta_increment_eigenvalues))
+delta_increment_rel_min <- if (delta_increment_max_abs_eigen == 0){
+  NA_real_
+} else {
+  delta_increment_min_eigen / delta_increment_max_abs_eigen
+}
+delta_increment_negative_tol <-
+  1e-10 * max(1,delta_increment_max_abs_eigen)
+
+# The stage-one propagated term is theoretically positive semidefinite.  If
+# finite-precision arithmetic or an I1 repair makes it indefinite, retain the
+# raw result for diagnostics and use its nearest positive-definite projection
+# in the downstream delta-method and Murphy-Topel covariances.
+delta_increment_repair <-
+  repair_target_covariance_near_pd(delta_increment_raw)
+if (isTRUE(delta_increment_repair$failed)){
+  stop("Could not repair stage-one propagated uncertainty using nearPD")
+}
+
+delta_increment <- delta_increment_repair$vcov
 rownames(delta_increment) <- names(gamma_hat)
 colnames(delta_increment) <- names(gamma_hat)
+
+if (isTRUE(delta_increment_repair$repaired)){
+  warning(paste(
+    "Stage-one propagated uncertainty repaired using nearPD;",
+    "raw relative minimum eigenvalue:",
+    signif(delta_increment_rel_min,6),
+    "relative Frobenius change:",
+    signif(delta_increment_repair$relative_repair_norm_f,6)
+  ))
+}
+
+cross_increment <- D %*% C_if + t(C_if) %*% t(D)
 rownames(cross_increment) <- names(gamma_hat)
 colnames(cross_increment) <- names(gamma_hat)
 
-V_delta <- V_naive + delta_increment
-V_MT_raw <- V_delta + cross_increment
-V_delta <- 0.5 * (V_delta + t(V_delta))
+V_delta_raw <- V_naive + delta_increment
+V_delta_raw <- 0.5 * (V_delta_raw + t(V_delta_raw))
+rownames(V_delta_raw) <- names(gamma_hat)
+colnames(V_delta_raw) <- names(gamma_hat)
+
+V_MT_raw <- V_delta_raw + cross_increment
 V_MT_raw <- 0.5 * (V_MT_raw + t(V_MT_raw))
-rownames(V_delta) <- names(gamma_hat)
-colnames(V_delta) <- names(gamma_hat)
 rownames(V_MT_raw) <- names(gamma_hat)
 colnames(V_MT_raw) <- names(gamma_hat)
 
-V_MT_repair <- repair_covariance_if_tiny_negative(V_MT_raw)
+V_delta_repair <- repair_target_covariance_near_pd(V_delta_raw)
+if (isTRUE(V_delta_repair$failed)){
+  stop("Could not repair delta-method target covariance")
+}
+V_delta <- V_delta_repair$vcov
+rownames(V_delta) <- names(gamma_hat)
+colnames(V_delta) <- names(gamma_hat)
+
+V_MT_repair <- repair_target_covariance_near_pd(V_MT_raw)
 if (isTRUE(V_MT_repair$failed)){
-  stop("Murphy-Topel covariance repair failed")
+  stop("Could not repair Murphy-Topel target covariance")
 }
 V_MT <- V_MT_repair$vcov
 rownames(V_MT) <- names(gamma_hat)
@@ -755,8 +1076,8 @@ colnames(V_MT) <- names(gamma_hat)
 se_naive <- sqrt(diag(V_naive))
 se_delta <- sqrt(diag(V_delta))
 se_MT <- sqrt(diag(V_MT))
-if (any(!is.finite(se_MT))){
-  stop("Murphy-Topel standard errors contain nonfinite values")
+if (any(!is.finite(c(se_naive,se_delta,se_MT)))){
+  stop("Two-stage standard errors contain nonfinite values")
 }
 
 gamma_truth <- if (settings$data_source == DATA_SOURCE[["simulation"]]){
@@ -766,37 +1087,105 @@ gamma_truth <- if (settings$data_source == DATA_SOURCE[["simulation"]]){
   stats::setNames(rep(NA_real_,length(gamma_hat)),names(gamma_hat))
 }
 
-V_MT_zero_C12 <- V_delta
-V_delta_zero_D <- V_naive
-V_MT_zero_D <- V_naive
+zero_C_if <- matrix(0,nrow = nrow(C_if),ncol = ncol(C_if))
+dimnames(zero_C_if) <- dimnames(C_if)
+V_MT_zero_C12_raw <- V_naive + delta_increment +
+  D %*% zero_C_if + t(zero_C_if) %*% t(D)
+V_MT_zero_C12_raw <- 0.5 *
+  (V_MT_zero_C12_raw + t(V_MT_zero_C12_raw))
 
-dimension_checks <- check_dimensions(I1_for_vcov,V1,D,S1,S2,C12,V_MT)
+zero_D <- matrix(0,nrow = nrow(D),ncol = ncol(D))
+dimnames(zero_D) <- dimnames(D)
+V_delta_zero_D <- V_naive + zero_D %*% I1_solve_D
+V_delta_zero_D <- 0.5 * (V_delta_zero_D + t(V_delta_zero_D))
+V_MT_zero_D <- V_delta_zero_D +
+  zero_D %*% C_if + t(C_if) %*% t(zero_D)
+V_MT_zero_D <- 0.5 * (V_MT_zero_D + t(V_MT_zero_D))
+
+dimension_checks <- check_dimensions(I1_raw,D,I1_solve_D,I1_solve_C12,
+                                     S1,S2,C12,V_MT)
+if (!all(dimension_checks$passed)){
+  stop("Murphy-Topel dimension checks failed")
+}
 symmetry_checks <- data.frame(
-  matrix = c("I1","V_naive","V_delta","V_MT"),
-  max_abs_asymmetry = c(matrix_max_asymmetry(I1_for_vcov),
+  matrix = c("I1","V_naive","V_delta_raw","V_delta",
+             "V_MT_raw","V_MT"),
+  max_abs_asymmetry = c(matrix_max_asymmetry(I1_raw),
                         matrix_max_asymmetry(V_naive),
+                        matrix_max_asymmetry(V_delta_raw),
                         matrix_max_asymmetry(V_delta),
+                        matrix_max_asymmetry(V_MT_raw),
                         matrix_max_asymmetry(V_MT)),
   stringsAsFactors = FALSE
 )
 score_checks <- rbind(score_sum_diagnostics(S1,"S1"),
                       score_sum_diagnostics(S2,"S2"))
+stage1_score_base <- as.numeric(mt_perturb$base_score)
+names(stage1_score_base) <- colnames(S1)
+stage1_score_sum_numeric <- colSums(S1)
+stage1_score_column_norm <- sqrt(colSums(S1^2))
+stage1_score_relative_imbalance <-
+  abs(stage1_score_sum_numeric) /
+  pmax(stage1_score_column_norm,.Machine$double.eps)
+stage1_score_rhs_scaled <- stage1_score_base / I1_information_scale
+stage1_newton_step_scaled <- safe_solve(I1_scaled_for_solve,
+                                        stage1_score_rhs_scaled)
+if (is.null(stage1_newton_step_scaled) ||
+    any(!is.finite(stage1_newton_step_scaled))){
+  stop("Could not calculate stage-one stationarity diagnostics")
+}
+stage1_newton_step <- stage1_newton_step_scaled / I1_information_scale
+names(stage1_newton_step) <- names(stage1_score_base)
+stage1_newton_decrement_squared <-
+  sum(stage1_score_base * stage1_newton_step)
+stage1_stationarity <- list(
+  max_abs_analytic_score = max(abs(stage1_score_base)),
+  max_abs_numeric_score_sum = max(abs(stage1_score_sum_numeric)),
+  max_abs_analytic_numeric_score_diff =
+    max(abs(stage1_score_base - stage1_score_sum_numeric)),
+  max_relative_analytic_numeric_score_diff =
+    max(abs(stage1_score_base - stage1_score_sum_numeric)) /
+    max(1,max(abs(stage1_score_base)),
+        max(abs(stage1_score_sum_numeric))),
+  max_relative_score_imbalance =
+    max(stage1_score_relative_imbalance),
+  max_abs_repaired_information_newton_step =
+    max(abs(stage1_newton_step)),
+  repaired_information_newton_decrement =
+    sqrt(max(0,stage1_newton_decrement_squared)),
+  analytic_score = stage1_score_base,
+  numeric_score_sum = stage1_score_sum_numeric,
+  relative_score_imbalance = stage1_score_relative_imbalance,
+  repaired_information_newton_step = stage1_newton_step
+)
+print(paste("Stage-one maximum relative score imbalance:",
+            signif(stage1_stationarity$max_relative_score_imbalance,6)))
 formula_checks <- data.frame(
   check = c("zero_C12_V_MT_equals_V_delta",
             "zero_D_V_delta_equals_V_naive",
             "zero_D_V_MT_equals_V_naive"),
-  max_abs_diff = c(max(abs(V_MT_zero_C12 - V_delta),na.rm = TRUE),
+  max_abs_diff = c(max(abs(V_MT_zero_C12_raw - V_delta_raw),na.rm = TRUE),
                    max(abs(V_delta_zero_D - V_naive),na.rm = TRUE),
                    max(abs(V_MT_zero_D - V_naive),na.rm = TRUE)),
   stringsAsFactors = FALSE
 )
 
 to_save$murphy_topel <- list(
-  variance_method = "weighted_murphy_topel",
+  variance_method = "weighted_target_murphy_topel",
   settings = list(h2_eps = eps,
                   cox_ties = "breslow",
                   cox_score_residuals_weighted = TRUE,
-                  variance_method = "weighted_murphy_topel",
+                  variance_method = "weighted_target_murphy_topel",
+                  longitudinal_information_method =
+                    I1_target_solve$diagnostics$method,
+                  longitudinal_information_repaired =
+                    I1_target_solve$diagnostics$repaired,
+                  near_pd_eig_tol =
+                    I1_target_solve$diagnostics$near_pd_eig_tol,
+                  near_pd_conv_tol =
+                    I1_target_solve$diagnostics$near_pd_conv_tol,
+                  near_pd_posd_tol =
+                    I1_target_solve$diagnostics$near_pd_posd_tol,
                   input_file = input_file,
                   output_file = output_file,
                   data_source = settings$data_source,
@@ -818,9 +1207,14 @@ to_save$murphy_topel <- list(
   H2_long = H2_long,
   H_obs_long = H_obs_long,
   I1_raw = I1_raw,
-  I1_for_vcov = I1_for_vcov,
-  V1 = V1,
+  I1_for_solve = I1_for_solve,
+  I1_for_vcov = I1_for_solve,
+  I1_scaled_for_solve = I1_scaled_for_solve,
+  I1_information_scale = I1_information_scale,
+  I1_solve_D = I1_solve_D,
+  I1_solve_C12 = I1_solve_C12,
   I2 = I2,
+  V_naive_raw = V_naive_raw,
   V_naive = V_naive,
   D = D,
   S1 = if (retain_score_matrices) S1 else NULL,
@@ -828,7 +1222,9 @@ to_save$murphy_topel <- list(
   C12 = C12,
   C_if = C_if,
   delta_increment = delta_increment,
+  delta_increment_raw = delta_increment_raw,
   cross_increment = cross_increment,
+  V_delta_raw = V_delta_raw,
   V_delta = V_delta,
   V_MT_raw = V_MT_raw,
   V_MT = V_MT,
@@ -843,14 +1239,30 @@ to_save$murphy_topel <- list(
   diagnostics = list(
     posterior = DiagnosePosteriorContext(posterior_context),
     information = DiagnoseOakesInformation(H1_long,H2_long),
-    I1_repair = I1_repair,
+    I1_target_solve = I1_target_solve$diagnostics,
+    I1_repair = I1_target_solve$diagnostics,
+    delta_increment = list(
+      min_eigen_raw = delta_increment_min_eigen,
+      max_abs_eigen_raw = delta_increment_max_abs_eigen,
+      rel_min_raw = delta_increment_rel_min,
+      negative_eigen_warning_tolerance = delta_increment_negative_tol,
+      eigenvalues = delta_increment_eigenvalues
+    ),
+    delta_increment_repair = delta_increment_repair,
+    V_naive_repair = V_naive_repair,
+    V_delta_repair = V_delta_repair,
     V_MT_repair = V_MT_repair,
     dimension_checks = dimension_checks,
     symmetry_checks = symmetry_checks,
     score_checks = score_checks,
+    stage1_stationarity = stage1_stationarity,
     formula_checks = formula_checks,
     perturbation = mt_perturb$diagnostics,
     I1_eigenvalues = matrix_eigenvalues(I1_raw),
+    I1_for_solve_eigenvalues = matrix_eigenvalues(I1_for_solve),
+    I1_scaled_for_solve_eigenvalues =
+      matrix_eigenvalues(I1_scaled_for_solve),
+    V_delta_raw_eigenvalues = matrix_eigenvalues(V_delta_raw),
     V_delta_eigenvalues = matrix_eigenvalues(V_delta),
     V_MT_raw_eigenvalues = matrix_eigenvalues(V_MT_raw),
     V_MT_eigenvalues = matrix_eigenvalues(V_MT),

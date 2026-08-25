@@ -6,10 +6,16 @@ array_start=1
 array_end=100
 
 # key: simulation_days|num_people|fit_mix_num|model_type|emission_overlap
+# emission_overlap: low, mid (medium), or high
 # value: recommended_time_hours memory_limit_gb
 ResourceLimit["1|5000|5|joint|low"]="4 4"
 ResourceLimit["3|5000|5|joint|low"]="16 10"
 ResourceLimit["7|5000|5|joint|low"]="30 20"
+
+# Use the high-overlap limits for mid until dedicated timing data are available.
+ResourceLimit["1|5000|5|joint|mid"]="5 5"
+ResourceLimit["3|5000|5|joint|mid"]="16 10"
+ResourceLimit["7|5000|5|joint|mid"]="52 20"
 
 ResourceLimit["1|5000|5|joint|high"]="5 5"
 ResourceLimit["3|5000|5|joint|high"]="16 10"
@@ -20,6 +26,10 @@ ScenarioKeys=(
     "1|5000|5|joint|low|profiled"
     "3|5000|5|joint|low|profiled"
     "7|5000|5|joint|low|profiled"
+
+    "1|5000|5|joint|mid|profiled"
+    "3|5000|5|joint|mid|profiled"
+    "7|5000|5|joint|mid|profiled"
 
     "1|5000|5|joint|high|profiled"
     "3|5000|5|joint|high|profiled"

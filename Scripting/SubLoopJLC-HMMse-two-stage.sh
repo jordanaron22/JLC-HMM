@@ -23,7 +23,7 @@ class_selection_run=${12:-false}
 emission_overlap=${13:-low}
 time_limit_hours=${14:-NA}
 memory_limit_gb=${15:-NA}
-h2_eps=${16:-1e-5}
+h2_eps=${16:-NA}
 retain_score_matrices=${17:-false}
 
 date

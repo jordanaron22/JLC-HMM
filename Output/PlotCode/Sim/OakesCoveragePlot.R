@@ -208,20 +208,41 @@ class_coverage_plot <- ggplot(
 print(class_coverage_plot)
 
 dir.create(dirname(scenario_output_prefix),recursive = TRUE,showWarnings = FALSE)
-ggsave(
-  paste0(scenario_output_prefix,".png"),
-  scenario_coverage_plot,
-  width = 10,
-  height = 6,
-  dpi = 300
-)
-ggsave(
-  paste0(class_output_prefix,".png"),
-  class_coverage_plot,
-  width = 12,
-  height = 7,
-  dpi = 300
-)
+# ggsave(
+#   paste0(scenario_output_prefix,".png"),
+#   scenario_coverage_plot,
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
+# ggsave(
+#   paste0(class_output_prefix,".png"),
+#   class_coverage_plot,
+#   width = 12,
+#   height = 7,
+#   dpi = 300
+# )
 
 
 # scenario_plot_data %>% filter(emission_overlap == "high", simulation_days == 7)
+
+
+
+plot_data <- scenario_plot_data%>% filter(emission_overlap == 'low' & (model_type == "Joint"|model_type=="Two-Stage MT"))
+plot_data$model_type[4:6] <- "Two-Stage"
+ggplot(
+  plot_data,
+  aes(x = days_label,y = coverage,fill = model_type)
+) +
+  geom_col(position = position_dodge(width = 0.8),width = 0.7,
+           color = "black") +
+  geom_hline(yintercept = 0.95,linetype = "dashed",color = "gray35") +
+  coord_cartesian(ylim = c(0,1)) +
+  scale_fill_viridis_d(end = .85,name = "Model") +
+  labs(x = "Simulation Days",
+       y = "Coverage",
+       fill = "Model",
+       title = "Survival Latent Class Coefficient Coverage") +
+  theme_bw()
+
+# ggsave('CoveragePresentation.png',height = 3.335)

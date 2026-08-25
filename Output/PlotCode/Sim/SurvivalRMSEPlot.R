@@ -264,11 +264,67 @@ survival_rmse_plot <- ggplot(
 
 print(survival_rmse_plot)
 
+comparison_cols <- c("true_mix_num","fit_mix_num","days","num_people",
+                     "emission_overlap")
+
+joint_rmse <- plot_data[
+  plot_data$model_type == "joint",
+  c(comparison_cols,"rmse")
+]
+names(joint_rmse)[names(joint_rmse) == "rmse"] <- "joint_rmse"
+
+two_stage_rmse <- plot_data[
+  plot_data$model_type == "two_stage",
+  c(comparison_cols,"rmse")
+]
+names(two_stage_rmse)[names(two_stage_rmse) == "rmse"] <- "two_stage_rmse"
+
+two_stage_entropy <- aggregate(
+  diagnostic_class_entropy_normalized_mean ~ true_mix_num + fit_mix_num +
+    simulation_days + num_people + emission_overlap,
+  data = dat[dat$model_type == "two_stage",],
+  FUN = mean,
+  na.rm = TRUE
+)
+names(two_stage_entropy)[names(two_stage_entropy) == "simulation_days"] <-
+  "days"
+names(two_stage_entropy)[
+  names(two_stage_entropy) == "diagnostic_class_entropy_normalized_mean"
+] <- "normalized_mean_entropy"
+
+entropy_rmse_data <- merge(joint_rmse,two_stage_rmse,
+                           by = comparison_cols)
+entropy_rmse_data <- merge(entropy_rmse_data,two_stage_entropy,
+                           by = comparison_cols)
+entropy_rmse_data$percent_rmse_reduction <- 100 * (
+  1 - entropy_rmse_data$joint_rmse / entropy_rmse_data$two_stage_rmse
+)
+
+entropy_rmse_plot <- ggplot(
+  entropy_rmse_data,
+  aes(x = normalized_mean_entropy,y = percent_rmse_reduction,
+      color = emission_overlap,shape = factor(days))
+) +
+  geom_point() +
+  theme_bw() +
+  labs(x = "Normalized mean entropy",y = "RMSE reduction (%)",
+       color = "Emission overlap",shape = "Days")
+
+print(entropy_rmse_plot)
+
 dir.create(dirname(output_prefix),recursive = TRUE,showWarnings = FALSE)
+# ggsave(
+#   paste0(output_prefix,".png"),
+#   survival_rmse_plot,
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
+
 ggsave(
-  paste0(output_prefix,".png"),
-  survival_rmse_plot,
-  width = 10,
-  height = 6,
+  file.path("Output","Figures","sim_entropy_rmse_reduction_poc.png"),
+  entropy_rmse_plot,
+  width = 7,
+  height = 3,
   dpi = 300
 )

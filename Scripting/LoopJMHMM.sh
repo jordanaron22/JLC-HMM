@@ -6,22 +6,31 @@ array_start=1
 array_end=100
 
 # key: simulation_days|num_people|fit_mix_num|model_type|emission_overlap
+# emission_overlap: low, mid (medium), or high
 # value: recommended_time_hours memory_limit_gb
-ResourceLimit["1|5000|5|joint|low"]="4 7"
-ResourceLimit["3|5000|5|joint|low"]="7 8"
-ResourceLimit["7|5000|5|joint|low"]="7 10"
+ResourceLimit["1|5000|5|joint|low"]="9 7"
+ResourceLimit["3|5000|5|joint|low"]="6 8"
+ResourceLimit["7|5000|5|joint|low"]="6 10"
 
-ResourceLimit["1|5000|5|joint|high"]="5 7"
-ResourceLimit["3|5000|5|joint|high"]="8 8"
-ResourceLimit["7|5000|5|joint|high"]="8 10"
+ResourceLimit["1|5000|5|joint|mid"]="21 7"
+ResourceLimit["3|5000|5|joint|mid"]="10 8"
+ResourceLimit["7|5000|5|joint|mid"]="10 10"
 
-ResourceLimit["1|5000|5|two_stage|low"]="4 7"
+ResourceLimit["1|5000|5|joint|high"]="34 7"
+ResourceLimit["3|5000|5|joint|high"]="48 8"
+ResourceLimit["7|5000|5|joint|high"]="15 10"
+
+ResourceLimit["1|5000|5|two_stage|low"]="23 7"
 ResourceLimit["3|5000|5|two_stage|low"]="6 8"
 ResourceLimit["7|5000|5|two_stage|low"]="6 10"
 
-ResourceLimit["1|5000|5|two_stage|high"]="8 7"
-ResourceLimit["3|5000|5|two_stage|high"]="10 8"
-ResourceLimit["7|5000|5|two_stage|high"]="10 10"
+ResourceLimit["1|5000|5|two_stage|mid"]="35 7"
+ResourceLimit["3|5000|5|two_stage|mid"]="10 8"
+ResourceLimit["7|5000|5|two_stage|mid"]="10 10"
+
+ResourceLimit["1|5000|5|two_stage|high"]="51 7"
+ResourceLimit["3|5000|5|two_stage|high"]="24 8"
+ResourceLimit["7|5000|5|two_stage|high"]="16 10"
 
 ResourceLimit["1|5000|2|joint|low"]="3 6"
 ResourceLimit["3|5000|2|joint|low"]="4 6"
@@ -43,27 +52,31 @@ ResourceLimit["1|5000|7|joint|low"]="14 8"
 ResourceLimit["3|5000|7|joint|low"]="14 8"
 ResourceLimit["7|5000|7|joint|low"]="14 13"
 
-ResourceLimit["1|5000|8|joint|low"]="16 7"
-ResourceLimit["3|5000|8|joint|low"]="16 9"
-ResourceLimit["7|5000|8|joint|low"]="16 13"
-
 
 ScenarioKeys=(
     "1|5000|5|joint|low"
-    # "3|5000|5|joint|low"
-    # "7|5000|5|joint|low"
+    "3|5000|5|joint|low"
+    "7|5000|5|joint|low"
 
-    # "1|5000|5|joint|high"
-    # "3|5000|5|joint|high"
-    # "7|5000|5|joint|high"
+    "1|5000|5|joint|mid"
+    "3|5000|5|joint|mid"
+    "7|5000|5|joint|mid"
+
+    "1|5000|5|joint|high"
+    "3|5000|5|joint|high"
+    "7|5000|5|joint|high"
 
     "1|5000|5|two_stage|low"
-    # "3|5000|5|two_stage|low"
-    # "7|5000|5|two_stage|low"
+    "3|5000|5|two_stage|low"
+    "7|5000|5|two_stage|low"
 
-    # "1|5000|5|two_stage|high"
-    # "3|5000|5|two_stage|high"
-    # "7|5000|5|two_stage|high"
+    "1|5000|5|two_stage|mid"
+    "3|5000|5|two_stage|mid"
+    "7|5000|5|two_stage|mid"
+
+    "1|5000|5|two_stage|high"
+    "3|5000|5|two_stage|high"
+    "7|5000|5|two_stage|high"
 
     # "1|5000|1|joint|low"
     # "1|5000|2|joint|low"

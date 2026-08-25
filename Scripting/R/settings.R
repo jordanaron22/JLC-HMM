@@ -22,7 +22,7 @@ default_settings <- list(
   run_leave_one_out_cv = FALSE,
   use_hot_start = FALSE,
   class_selection_run = FALSE,
-  emission_overlap = "low",
+  emission_overlap = "mid", # "low" = 1, "mid" (medium) = 0.75, "high" = 0.5
   simulation_days = DEFAULT_SIMULATION_DAYS,
   num_people = DEFAULT_SIMULATION_PEOPLE,
   missing_perc = DEFAULT_MISSING_PERC,
