@@ -2,30 +2,30 @@
 
 declare -A ResourceLimit
 
-full_run_array_start=11
+full_run_array_start=1
 full_run_array_end=110
 cv_fold_count=20
 
 # key: fit_mix_num|model_type
 # value: recommended_time_hours memory_limit_gb
 
-ResourceLimit["1|joint"]="24 5"
-ResourceLimit["2|joint"]="24 6"
-ResourceLimit["3|joint"]="24 7"
-ResourceLimit["4|joint"]="24 8"
-ResourceLimit["5|joint"]="24 9"
-ResourceLimit["6|joint"]="24 10"
-ResourceLimit["7|joint"]="24 11"
+ResourceLimit["1|joint"]="5 5"
+ResourceLimit["2|joint"]="5 6"
+ResourceLimit["3|joint"]="5 7"
+ResourceLimit["4|joint"]="5 8"
+ResourceLimit["5|joint"]="5 9"
+ResourceLimit["6|joint"]="5 10"
+ResourceLimit["7|joint"]="5 11"
 # ResourceLimit["8|joint"]="24 12"
 # ResourceLimit["9|joint"]="24 14"
 
-ResourceLimit["1|two_stage"]="24 5"
-ResourceLimit["2|two_stage"]="24 6"
-ResourceLimit["3|two_stage"]="24 7"
-ResourceLimit["4|two_stage"]="24 8"
-ResourceLimit["5|two_stage"]="24 9"
-ResourceLimit["6|two_stage"]="24 10"
-ResourceLimit["7|two_stage"]="24 11"
+ResourceLimit["1|two_stage"]="5 5"
+ResourceLimit["2|two_stage"]="5 6"
+ResourceLimit["3|two_stage"]="5 7"
+ResourceLimit["4|two_stage"]="5 8"
+ResourceLimit["5|two_stage"]="5 9"
+ResourceLimit["6|two_stage"]="5 10"
+ResourceLimit["7|two_stage"]="5 11"
 # ResourceLimit["8|two_stage"]="24 12"
 # ResourceLimit["9|two_stage"]="24 14"
 
@@ -99,29 +99,7 @@ for scenario_key in "${ScenarioKeys[@]}"; do
         expected_file_prefix="${expected_file_prefix}NoSurv"
     fi
 
-    if [ "$run_bootstrap" = "true" ]; then
-        expected_file_prefix="${expected_file_prefix}Bootstrap"
-    fi
-
-    if [ "$run_leave_one_out_cv" = "true" ]; then
-        expected_file_prefix="${expected_file_prefix}LeaveOut"
-    fi
-
-    if [ "$init_jitter_scale" != "0" ] && [ "$init_jitter_scale" != "0.0" ]; then
-        expected_file_prefix="${expected_file_prefix}RandInit"
-    fi
-
-    if [ "$use_hot_start" = "true" ]; then
-        expected_file_prefix="${expected_file_prefix}LoadIn"
-    fi
-
-    if [ "$class_selection_run" = "true" ]; then
-        expected_file_prefix="${expected_file_prefix}ClassSelection"
-    fi
-
-    if [ "$save_reduced_output" = "true" ]; then
-        expected_file_prefix="${expected_file_prefix}Reduced"
-    fi
+    expected_file_prefix="${expected_file_prefix}RandInitReduced"
 
     submitted_job_id=$(sbatch --parsable --array="${array_start}-${array_end}" --job-name="$job_name" --time="${requested_time}":00:00 --mem="${requested_mem}"gb SubLoopJMHMM.sh $fit_mix_num $model_type $data_source $run_bootstrap $init_jitter_scale $run_leave_one_out_cv $use_hot_start $simulation_days $num_people $true_mix_num $save_reduced_output $class_selection_run $emission_overlap $requested_time $requested_mem)
 

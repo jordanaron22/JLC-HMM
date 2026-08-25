@@ -127,19 +127,110 @@ if (load_data){
     folder_name <- paste0("NS",folder_name)
   }
 
+  use_seed_specific_nhanes_hot_start <- real_data && !leave_out
+  if (use_seed_specific_nhanes_hot_start){
+    seed_specific_name <- paste0(
+      model_name_loadin,
+      "RandInitReducedFitMix",fit_mix_num,
+      "Seed",sim_num,
+      "len",period_len,
+      ".rda"
+    )
+    legacy_one_class_name <- paste0(
+      model_name_loadin,
+      "RandInitLoadInClassSelectionReducedFitMix",fit_mix_num,
+      "Seed",sim_num,
+      "len",period_len,
+      ".rda"
+    )
+    hot_start_candidates <- file.path(
+      "Data",
+      c(
+        seed_specific_name,
+        paste0("Inter",seed_specific_name),
+        legacy_one_class_name,
+        paste0("Inter",legacy_one_class_name)
+      )
+    )
+    hot_start_candidates <- hot_start_candidates[
+      file.exists(hot_start_candidates)
+    ]
+    if (length(hot_start_candidates) == 0){
+      stop(paste(
+        "Could not find a seed-specific NHANES hot-start file. Tried:",
+        paste(file.path(
+          "Data",
+          c(
+            seed_specific_name,
+            paste0("Inter",seed_specific_name),
+            legacy_one_class_name,
+            paste0("Inter",legacy_one_class_name)
+          )
+        ),collapse = ", ")
+      ))
+    }
 
-  legacy_model_name_loadin <- paste0(model_name_loadin,"Mix",load_mix_num,"Seed",".rda")
-  model_name_loadin <- paste0(model_name_loadin,"FitMix",load_mix_num,"Seed",".rda")
-  print(paste("Loading",model_name_loadin))
-  setwd("Data")
-  if (!file.exists(model_name_loadin)){
-    model_name_loadin <- legacy_model_name_loadin
-    print(paste("Loading legacy",model_name_loadin))
+    hot_start_file <- hot_start_candidates[[1]]
+    print(paste("Loading seed-specific NHANES hot start",hot_start_file))
+    to_save <- load_to_save_from_path(hot_start_file)
+
+    # Keep the original run identity while replacing an interim checkpoint
+    # with its completed result in the normal Routputs working directory.
+    model_name <- sub("^Inter","",basename(hot_start_file))
+    model_name <- sub("LoadInClassSelection","",model_name,fixed = TRUE)
+    settings$model_name <- model_name
+    settings$restart_input_file <- normalizePath(hot_start_file,mustWork = TRUE)
+    print(paste("Restart output model name",model_name))
+  } else {
+    legacy_model_name_loadin <- paste0(
+      model_name_loadin,"Mix",load_mix_num,"Seed.rda"
+    )
+    model_name_loadin <- paste0(
+      model_name_loadin,"FitMix",load_mix_num,"Seed.rda"
+    )
+    print(paste("Loading",model_name_loadin))
+    setwd("Data")
+    if (!file.exists(model_name_loadin)){
+      model_name_loadin <- legacy_model_name_loadin
+      print(paste("Loading legacy",model_name_loadin))
+    }
+    load(model_name_loadin)
+    setwd("..")
   }
-  load(model_name_loadin)
-  setwd("..")
-  validate_saved_results(to_save,required_sections = c("est_params"),
-                         source_name = model_name_loadin)
+
+  validate_saved_results(
+    to_save,
+    required_sections = c("est_params"),
+    source_name = if (use_seed_specific_nhanes_hot_start){
+      hot_start_file
+    } else {
+      model_name_loadin
+    }
+  )
+
+  if (use_seed_specific_nhanes_hot_start){
+    saved_settings <- get_saved_section(to_save,"settings",required = FALSE)
+    if (!is.null(saved_settings)){
+      expected_saved_settings <- list(
+        fit_mix_num = fit_mix_num,
+        model_type = model_type,
+        data_source = data_source,
+        sim_num = sim_num,
+        period_len = period_len
+      )
+      for (setting_name in names(expected_saved_settings)){
+        saved_value <- saved_settings[[setting_name]]
+        expected_value <- expected_saved_settings[[setting_name]]
+        if (!is.null(saved_value) &&
+            !identical(as.character(saved_value),as.character(expected_value))){
+          stop(paste(
+            "Seed-specific hot-start setting mismatch for",setting_name,
+            ": saved",saved_value,"but requested",expected_value
+          ))
+        }
+      }
+    }
+  }
 
   # # model_name_loadin <- paste0(model_name_loadin,"Mix",mix_num,"Seed",sim_num,".rda")
   # # print(paste("Loading",model_name_loadin))
