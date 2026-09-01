@@ -79,6 +79,7 @@
 
 \usepackage{graphicx} % Allows including images
 \usepackage{booktabs} % Allows the use of \toprule, \midrule and \bottomrule in tables
+\usepackage{array}
 \usepackage{amsmath}
 \usepackage{xcolor}
 \usepackage{graphicx}
@@ -119,7 +120,7 @@
 %\medskip
 %\textit{john@smith.com} % Your email address
 }
-% \date{December 13, 2024} % Date, can be changed to a custom date
+\date{September 3, 2026} % Date, can be changed to a custom date
 
 \begin{document}
 
@@ -152,6 +153,18 @@
 
 \end{frame}
 
+
+ \begin{frame}{Motivation}
+ \begin{figure}
+     \centering
+     \includegraphics[width=0.95\linewidth]{CrudeActivity.png}
+     \caption{Survival by average log activity in the most active 10 hours (M10) and least
+active 5 hours (L5) quartile.}
+ \end{figure}
+ \end{frame}
+
+
+
 %------------------------------------------------
 \begin{frame}
 \frametitle{Motivating Example}
@@ -173,6 +186,22 @@
 \end{itemize}
 \end{frame}
 %------------------------------------------------
+
+\begin{frame}
+\frametitle{Data Description}
+% \begin{itemize}
+%     % \item Longitudinal activity and light data
+%     % \item Time-to-event linked mortality data
+%     %Data is one measurement per minute for a week per person
+% \end{itemize}
+\includegraphics[scale = .2]{SampleActivity.jpg}
+
+\end{frame}
+
+
+%%------------------------------------------------
+
+
 \begin{frame}
 \frametitle{Motivation}
 \begin{itemize}
@@ -180,25 +209,16 @@
     \item Approach: use physical activity monitors (PAMs) to examine activity and light and then infer the sleep/wake cycle
     \item Sleep studies are expensive and often limited in size
     \item Self reported sleep and activity metrics are often unreliable 
-    \item PAMs are not without their own quirks
+    % \item PAMs are not without their own quirks
     % https://pmc.ncbi.nlm.nih.gov/articles/PMC3798642/#:~:text=This%20study%20found%20that%20self,and%20wake%20after%20sleep%20onset.
 
 \end{itemize}
 
-\end{frame}
-
-
-%%------------------------------------------------
-\begin{frame}
-\frametitle{Data Description}
-\begin{itemize}
-    \item Longitudinal activity and light data
-    \item Time-to-event linked mortality data
-    %Data is one measurement per minute for a week per person
-\end{itemize}
-\includegraphics[scale = .2]{SampleActivity.jpg}
 
 \end{frame}
+
+
+
 
 
 \section{Model Description} 
@@ -208,7 +228,7 @@
     \item Assumes latent class structure entirely captures the relationship between longitudinal and survival data
     \item Mixture of hidden Markov models (MHMM) for the longitudinal component
     \item Cox model for the survival aspect
-    \item Joint model can incorporate uncertainty in latent class prediction
+    \item Joint model can incorporate uncertainty in latent class prediction better than a standard two-stage model
 \end{itemize}
 \end{frame}
 
@@ -230,15 +250,15 @@
     scale=0.9
 ]
 
-\node[circle, draw] (S_0) {$S_{t-1}$};
-\node[circle, draw] (S_1) [right of=S_0] {$S_t$};
-\node[circle, draw] (S_2) [right of=S_1] {$S_{t+1}$};
+\node[circle, draw] (S_0) {$S_{d-1}$};
+\node[circle, draw] (S_1) [right of=S_0] {$S_d$};
+\node[circle, draw] (S_2) [right of=S_1] {$S_{d+1}$};
 \node[] (Dot) [right of=S_2] {$\cdots$};
 \node[] (Hid) [left of=S_0] {};
 
 \path
-(S_0) edge node {$P(S_t|S_{t-1})$} (S_1)
-(S_1) edge node {$P(S_{t+1}|S_t)$} (S_2)
+(S_0) edge node {$P(S_d|S_{d-1})$} (S_1)
+(S_1) edge node {$P(S_{d+1}|S_d)$} (S_2)
 (S_2) edge (Dot)
 (Hid) edge node {} (S_0);
 
@@ -263,24 +283,24 @@
     scale=0.9
 ]
 
-\node[circle, draw] (S_0) {$S_{t-1}$};
-\node[circle, draw] (S_1) [right of=S_0] {$S_t$};
-\node[circle, draw] (S_2) [right of=S_1] {$S_{t+1}$};
+\node[circle, draw] (S_0) {$S_{d-1}$};
+\node[circle, draw] (S_1) [right of=S_0] {$S_d$};
+\node[circle, draw] (S_2) [right of=S_1] {$S_{d+1}$};
 \node[] (Dot) [right of=S_2] {$\cdots$};
 \node[] (Hid) [left of=S_0] {};
 
-\node[circle, draw] (X_0) [below of=S_0] {$X_{t-1}$};
-\node[circle, draw] (X_1) [below of=S_1] {$X_t$};
-\node[circle, draw] (X_2) [below of=S_2] {$X_{t+1}$};
+\node[circle, draw] (X_0) [below of=S_0] {$X_{d-1}$};
+\node[circle, draw] (X_1) [below of=S_1] {$X_d$};
+\node[circle, draw] (X_2) [below of=S_2] {$X_{d+1}$};
 
 \path
-(S_0) edge node {$P(S_t|S_{t-1})$} (S_1)
-(S_1) edge node {$P(S_{t+1}|S_t)$} (S_2)
+(S_0) edge node {$P(S_d|S_{d-1})$} (S_1)
+(S_1) edge node {$P(S_{d+1}|S_d)$} (S_2)
 (S_2) edge (Dot)
 (Hid) edge node {} (S_0)
-(S_0) edge[dashed] node {$P(X_{t-1}|S_{t-1})$} (X_0)
-(S_1) edge[dashed] node {$P(X_t|S_t)$} (X_1)
-(S_2) edge[dashed] node {$P(X_{t+1}|S_{t+1})$} (X_2);
+(S_0) edge[dashed] node {$P(X_{d-1}|S_{d-1})$} (X_0)
+(S_1) edge[dashed] node {$P(X_d|S_d)$} (X_1)
+(S_2) edge[dashed] node {$P(X_{d+1}|S_{d+1})$} (X_2);
 
 \end{tikzpicture}
 \end{center}
@@ -419,23 +439,16 @@
 
 \begin{frame}{Survival Model}
 \begin{itemize}
-    \item Cox model accounting for latent class and age
+    \item Cox model accounting for latent class and sociodemographic characteristics
     \item Breslow estimator for non-parametric baseline hazards
     %\item P(group A | data) = $\frac{\text{P(data | group A)P(group A)}}{\text{P(data)}}$
 \end{itemize}
 \end{frame}
 %------------------------------------------------
 
- \begin{frame}{Model Diagram}
- \begin{figure}
-     \centering
-     \includegraphics[width=0.95\linewidth]{ModelDiagram.pdf}
-    %  \caption{Survival coefficient confidence interval coverage by model type and mixture for 250 simulations with 3,000 individuals each.}
-    %  \label{fig:enter-label}
- \end{figure}
- \end{frame}
-
 \section{Estimation} 
+
+
 
 
 \begin{frame}{EM Algorithm}
@@ -444,6 +457,19 @@
     \item Replace log likelihood with the expectation of the log likelihood conditional on the observed data
 \end{itemize}
 \end{frame}
+
+%------------------------------------------------
+\begin{frame}{EM Algorithm}
+% Define Q(theta|theta) as the expected value of the log likelihood function of theta with respect to the current conditional distribution of S  given X and the current estimates of the parameters
+
+% The EM or expectation-maximization algorithm is an approach for performing maximum likelihood estimation in the presence of latent variables. It does this by first estimating the values for the latent variables in the e step, then optimizing the model in the m step. these two steps are repeated until convergence.
+
+\begin{itemize}
+    \item E-step: $Q(\theta|\theta^{(r)}) = E_{\theta^{(r)}}[\ell| \text{observed data}]$
+    \item M-step: $\theta^{(r+1)} = \text{arg max}_\theta \text{ } Q(\theta|\theta^{(r)}) $
+\end{itemize}
+\end{frame}
+
 %------------------------------------------------
 
 \begin{frame}{Notation}
@@ -452,24 +478,41 @@
     \item Let t be the observed survival time and $\delta$ be the censored indicator
     \item Let \textbf{S} be the latent sleep/wake state
     \item Let \textbf{G} be the latent subgroup assignment
+    \item Observed: \textbf{a}, \textbf{x}, t, and $\delta$
+    \item Latent: \textbf{S} and \textbf{G}
 \end{itemize}
 \end{frame}
 
-%------------------------------------------------
-
-%Define Q(theta|theta) as the expected value of the log likelihood function of theta with respect to the current conditional distribution of S  given X and the current estimates of the parameters
-
-%The EM or expectation-maximization algorithm is an approach for performing maximum likelihood estimation in the presence of latent variables. It does this by first estimating the values for the latent variables in the e step, then optimizing the model in the m step. these two steps are repeated until convergence.
-
-% \begin{frame}{EM Algorithm \cite{Dempster1977}}
-% \begin{itemize}
-%     \item E-step: $Q(\theta|\theta^{(t)}) = E_{\textbf{S,G}|\textbf{a,x},\theta^{(t)}}[\text{log }L(\theta ;\textbf{a,x,S,G})]$
-%     \item M-step: $\theta^{(t+1)} = \text{arg max}_\theta \text{ } Q(\theta|\theta^{(t)}) $
-% \end{itemize} \\ 
-
-% \end{frame}
 
 %------------------------------------------------
+
+\begin{frame} {Likelihood}
+    \footnotesize
+    \begin{align*}
+		f(\textbf{a},\textbf{x},\textbf{t}) = \prod_{i=1}^n \Bigg[ & \prod_{g=1}\prod_{j=0}^{1}p_j(g)^{I(S_{i1} = j, G_i = g)} %\\
+		%& 
+        \prod_{g=1}\prod_{d=2}^{m}\prod_{k=0}^{1}\prod_{j=0}^{1} p_{kj}(d,g)^{I(S_{id} = j, S_{i,d-1}=k, G_i=g)} \times \nonumber \\
+		& \prod_{g=1} \prod_{d=1}^{m} \prod_{j=0}^{1} f(a_{id},x_{id}|S_{id} = j, G_i=g)^{I(S_{id} = j,G_i=g)} \times \\
+		& \prod_{g=1} \Big(\big[\lambda(t_i)e^{z_i\beta_{\text{}} + \beta_g}\big]^{\delta_i} e^{-\Lambda(t_i)e^{z_i\beta_{\text{}} + \beta_g}}\Big)^{I(G_i=g)}   \prod_{g=1}\pi_{ig}^{I(G_i=g)} \Bigg]^{ \omega_i} \nonumber,
+\end{align*}
+\end{frame}
+
+
+
+\begin{frame}{Complete Data Log Likelihood}
+    \footnotesize
+    \begin{align*}
+	%\begin{split}
+		E[\ell|\textbf{a},\textbf{x},\textbf{t}] = \\
+        \sum^n_{i=1}\omega_i \Bigg[ &\sum_{g=1}\sum_{j=0}^{1} 
+		P(S_{i1} = j, G_i = g|\textbf{a}_i,\textbf{x}_i,t_i) \text{log }p_j(g) + \nonumber \\
+		&\sum_{g=1}\sum_{d=2}^{m}\sum_{k=0}^{1}\sum_{j=0}^{1} P(S_{id} = j, S_{i,d-1}=k, G_i=g|\textbf{a}_i,\textbf{x}_i,t_i)\text{log }p_{kj}(d,g) + \nonumber\\
+		& \sum_{g=1} \sum_{d=1}^{m} \sum_{j=0}^{1} P(S_{id} = j,G_i=g|\textbf{a}_i,\textbf{x}_i,t_i)\text{log }f_0(a_{id},x_{id}|S_{id} = j, G_i=g) + \nonumber \\
+		&\sum_{g=1} P(G_i=g|\textbf{a}_i,\textbf{x}_i,t_i)\Big( {\delta_i}\big[\text{log }\lambda(t_i)+z_i\beta_{\text{}} + \beta_g\big] - \Lambda(t_i)e^{z_i\beta_{\text{}} + \beta_g}\Big) + \nonumber \\
+		& \sum_{g=1}P(G_i=g|\textbf{a}_i,\textbf{x}_i,t_i)\text{log }\pi_{ig} \Bigg]. \nonumber
+	%\end{split}
+\end{align*}
+\end{frame}
 
 
 
@@ -485,11 +528,11 @@
 \[ \alpha_{d}(j,g) = \begin{cases}
     P(a_{1},x_1|S_{1}=j,\mathcolor{red}{G=g}) 
     \mathcolor{red}{h(t|g)^\delta P(T > t|g)}& \text{if } d = 1 \\
-    \sum_{k=0}^1 \alpha_{d-1}(k,g)P(a_{d},x_t|S_{d}=j,\mathcolor{red}{G=g}) & \text{if } d > 1\\
+    \sum_{k} \alpha_{d-1}(k,g)p_{kj}(d,g)P(a_{d},x_d|S_{d}=j,\mathcolor{red}{G=g}) & \text{if } d > 1\\
 \end{cases}\]
 \bigskip
 \begin{itemize}
-    \item $\beta_{d}(j,b) =  P(a_{d+1:D}, x_{d+1:D} | S_{d} = j,\mathcolor{red}{G=g})$
+    \item $\beta_{d}(j,g) =  P(a_{d+1:D}, x_{d+1:D} | S_{d} = j,\mathcolor{red}{G=g})$
 \end{itemize}
 
 
@@ -538,7 +581,8 @@
 
 \[
 \begin{aligned}
-P(\mathbf{a,x},t) = \sum_g P(\mathbf{a,x},t|G=g) = \sum_{j,g} \alpha_d(j,g)\beta_d(j,g)P(G=g)
+P(\mathbf{a,x},t) &= \sum_g P(\mathbf{a,x},t|G=g) P(G=g) \\
+&= \sum_{j,g} \alpha_d(j,g)\beta_d(j,g)P(G=g)
 \end{aligned}
 \]
 
@@ -560,95 +604,236 @@ P(G=g|\mathbf{a,x},t)
 
 \end{frame}
 
+\section[Variance]{Variance Estimation}
+
+\begin{frame}{Variance Components}
+\small
+\renewcommand{\arraystretch}{1.35}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.22\linewidth}>{\raggedright\arraybackslash}p{0.31\linewidth}>{\raggedright\arraybackslash}p{0.39\linewidth}@{}}
+\toprule
+\textbf{Tool} & \textbf{Uncertainty} & \textbf{Contribution} \\
+\midrule
+Sandwich estimator & Strata/PSU & Design-based variance for NHANES \\
+Oakes Identity & Latent states/classes & Observed information for latent EM variables\\
+Murphy-Topel & Estimated class probabilities & first-stage uncertainty propagation \\
+\bottomrule
+\end{tabular}
+
+
+\end{frame}
+
+\begin{frame}{Sandwich Estimator}
+\small
+Let $\ell_i(\theta)$ denote participant $i$'s weighted log-likelihood contribution.
+
+\[
+\resizebox{0.98\linewidth}{!}{$\displaystyle
+\widehat{\mathrm{Var}}(\widehat\theta)
+=
+\underbrace{
+\left[
+-\sum_i
+\left.\frac{\partial^2\ell_i(\theta)}{\partial\theta\,\partial\theta^T}
+\right|_{\widehat\theta}
+\right]^{-1}
+}_{\text{bread}}
+\underbrace{
+\widehat{\mathrm{Var}}_d\!\left\{
+\sum_i
+\left.\frac{\partial\ell_i(\theta)}{\partial\theta}
+\right|_{\widehat\theta}
+\right\}
+}_{\text{meat}}
+\underbrace{
+\left[
+-\sum_i
+\left.\frac{\partial^2\ell_i(\theta)}{\partial\theta\,\partial\theta^T}
+\right|_{\widehat\theta}
+\right]^{-T}
+}_{\text{bread}}
+$}
+\]
+
+\begin{itemize}
+    \item \textbf{Bread:} inverse curvature of the weighted likelihood; converts score changes into parameter changes
+    \item \textbf{Meat:} sampling variability of the weighted score; NHANES strata and PSUs determine this term
+\end{itemize}
+
+\end{frame}
+
+\begin{frame}{Oakes Identity}
+
+    Recall that $Q(\theta'|\theta)$ is the expected complete-data log-likelihood given the observed data and current parameter estimates
+
+\[
+\mathcal I_{\mathrm{obs}}(\widehat\theta)=
+-\left[
+\frac{\partial^2 Q(\theta'|\theta)}{\partial\theta'\partial\theta'^{\!T}}
++
+\frac{\partial^2 Q(\theta'|\theta)}{\partial\theta'\partial\theta^{T}}
+\right]_{\theta'=\theta=\widehat\theta}
+\]
+\medskip
+\begin{itemize}
+    \item The first term is the curvature of the M-step objective
+    \item The second term accounts for changes in the E-step state and class probabilities
+    \item Inverting $\mathcal I_{\mathrm{obs}}$ gives the bread for the sandwich estimator
+\end{itemize}
+
+\end{frame}
+
+
+\begin{frame}{Design-Based Variance}
+\small
+Within PSU $j$ in stratum $h$, sum the weighted scores:
+\[
+\mathbf U_{hj}=\sum_{i\in(h,j)}\frac{\partial\ell_i(\widehat\theta)}{\partial\theta},
+\qquad
+\overline{\mathbf U}_h=\frac{1}{m_h}\sum_{j=1}^{m_h}\mathbf U_{hj}.
+\]
+
+The meat is the within-stratum variation of the PSU totals:
+\[
+\sum_h\frac{m_h}{m_h-1}\sum_{j=1}^{m_h}
+(\mathbf U_{hj}-\overline{\mathbf U}_h)
+(\mathbf U_{hj}-\overline{\mathbf U}_h)^T.
+\]
+
+where $m_h$ is the number of PSUs in stratum $h$.
+\end{frame}
+
+\begin{frame}{Murphy-Topel}
+\small
+\begin{center}
+\resizebox{0.96\linewidth}{!}{%
+\begin{tikzpicture}[>=stealth, node distance=1.05cm]
+\node[draw, rounded corners, minimum width=2.25cm, minimum height=0.8cm] (hmm) {Longitudinal Model};
+\node[draw, rounded corners, right=of hmm, minimum width=2.45cm, minimum height=0.8cm] (class) {Class probabilities};
+\node[draw, rounded corners, right=of class, minimum width=2.3cm, minimum height=0.8cm] (cox) {Survival Model};
+\draw[->, thick] (hmm) -- node[above] {} (class);
+\draw[->, thick] (class) -- node[above] {} (cox);
+\end{tikzpicture}
+}
+\end{center}
+
+\begin{itemize}
+    \item A naive Cox standard error treats class probabilities as fixed
+    \item Murphy-Topel accounts for uncertainty introduced in stage 1 by formulating stacked estimating equations for both stages
+    \item Full two-stage variance estimation uses Oakes information for the first-stage MHMM within a Murphy--Topel sandwich that propagates first-stage uncertainty into the survival estimates
+\end{itemize}
+
+\[
+\underbrace{\sum_i w_i
+\begin{bmatrix}
+\mathbf u_{1i}(\widehat\theta_L)\\
+\mathbf u_{2i}(\widehat\beta,\widehat\theta_L)
+\end{bmatrix}}_{\mathbf U(\widehat\theta_L,\widehat\beta)}=\mathbf 0
+\]
+\[
+\begin{gathered}
+\theta_L=\text{longitudinal parameters}, \qquad
+\beta=\text{survival parameters},\\
+\mathbf u_{1i}=\text{Longitudinal score},\qquad
+\mathbf u_{2i}=\text{Survival score}
+\end{gathered}
+\]
+
+
+
+
+\end{frame}
+
+
+
+ \section{Simulation} 
 
 \begin{frame}{Joint vs. Two-Stage}
 \begin{itemize}
     \item Two-stage model estimates longitudinal parameters first, then plugs latent class prediction into Cox model
     \item Joint model reduces possible misclassification by allowing for uncertainty in latent class
-    \item Incorporates $ P(G=g|\textbf{a,x},y)$ directly into Cox model
+    \item Incorporates $ P(G=g|\textbf{a,x},t)$ directly into Cox model
 \end{itemize}
 \end{frame}
 
 
- \section{Simulation} 
 
- \begin{frame}{Simulation Bias}
+ \begin{frame}{Simulation RMSE}
  \begin{figure}
      \centering
-     \includegraphics[width=0.95\linewidth]{RBiasBarplot.png}
-     \caption{Survival coefficient relative bias by model type and mixture for 250 simulations with 3,000 individuals each.}
+     \includegraphics[width=0.95\linewidth]{SimulationResults.png}
+     \caption{Survival coefficient relative bias by model type and mixture for 250 simulations with 5,000 individuals each.}
      \label{fig:enter-label}
  \end{figure}
  \end{frame}
 
- \begin{frame}{Simulation Coverage}
+  \begin{frame}{Simulation Coverage}
  \begin{figure}
      \centering
-     \includegraphics[width=0.95\linewidth]{CoveragePlot.png}
-     \caption{Survival coefficient confidence interval coverage by model type and mixture for 250 simulations with 3,000 individuals each.}
-     \label{fig:enter-label}
+     \includegraphics[width=0.95\linewidth]{Coverage.png}
+     \caption{Survival coefficient coverage by model type and follow-up length for 250 simulations with 5,000 individuals each.}
  \end{figure}
  \end{frame}
 
 
  \section{Results} 
 
- \begin{frame}{Results}
-     \begin{figure}
-         \centering
-         \includegraphics[width=0.9\linewidth]{Survival80YO.png}
-         \caption{Predicted survival probabilities by mixture for 80 year old.}
-         \label{fig:enter-label}
-     \end{figure}
+ \begin{frame}{Hazard Ratio Results}
+ \begin{figure}
+    \centering
+    \includegraphics[width=1.1\linewidth]{JMv2S.png}
+    \caption{Hazard ratios and 95\% confidence intervals (CI) for latent class coefficients. The first latent class was used as a reference.}
+ \end{figure}
+ \end{frame}
+
+  \begin{frame}{Emission Results}
+ \begin{figure}
+    \centering
+    \includegraphics[width=0.95\linewidth]{ActLightFig.png}
+    \caption{Bivariate emission density plot of weekday activity and light for the 5 latent class joint model. Dashed horizontal and vertical lines indicate the LoD.}
+ \end{figure}
  \end{frame}
 
 
-
- \begin{frame}{Validation}
-
-     \begin{figure}
-       \centering
-       \includegraphics[width=.75\linewidth]{LHOCOspecsens.png}
-       % \caption{Validation using sleep cycle data}
-     \caption{Sensitivity and specificity of class prediction calculation using leave 100 out cross validation. Sleep cycle data was used to predict the mixture. No survival data was used in validation.}
-     \end{figure}
+   \begin{frame}{Cluster Drivers Results}
+ \begin{figure}
+    \centering
+    \includegraphics[width=0.9\linewidth]{SensSpecbyDataForPaper.png}
+    \caption{Cross validated latent class sensitivity and specificity by type of testing data used. Baseline "true" latent class was identified using full data. For sleep-wake cycle, the testing data only contained the locally decoded latent state. For null transition, a transition matrix with 0.5 for all entries was used.}
+ \end{figure}
  \end{frame}
 
- \begin{frame}{Validation}
-
-     \begin{figure}
-       \centering
-       \includegraphics[width=.75\linewidth]{LHONLspecsens.png}
-       % \caption{Validation using sleep cycle data}
-     \caption{Sensitivity and specificity of class prediction calculation using leave 100 out cross validation. Sleep cycle, and activity data was used to predict the mixture. No survival data was used in validation.}
-     \end{figure}
- \end{frame}
-
- \begin{frame}{Validation}
-
-     \begin{figure}
-       \centering
-       \includegraphics[width=.75\linewidth]{LHOspecsens.png}
-       % \caption{Validation using sleep cycle data}
-     \caption{Sensitivity and specificity of class prediction calculation using leave 100 out cross validation. Sleep cycle, activity, and light data was used to predict the mixture. No survival data was used in validation.}
-     \end{figure}
- \end{frame}
-
-
-
- \begin{frame}{Differences in Emission Distribution}
-     \begin{figure}
-         \centering
-         \includegraphics[width=0.8\linewidth]{WeekEmissionDist.png}
-         \caption{Bivariate normal emission distributions by wake or sleep and mixture. Columns are wake/sleep and rows are mixture. Dashed lines indicate the LoD.}
-         \label{fig:enter-label}
-     \end{figure}
- \end{frame}
 
  \begin{frame}
      \centering
      \Huge
      Any Questions?
  \end{frame}
+
+
+ \appendix
+ \section*{Appentix}
+
+
+
+  \begin{frame}{Model Diagram}
+ \begin{figure}
+     \centering
+     \includegraphics[width=1.05\linewidth]{ModelDiagram.pdf}
+    %  \caption{Survival coefficient confidence interval coverage by model type and mixture for 250 simulations with 3,000 individuals each.}
+    %  \label{fig:enter-label}
+ \end{figure}
+ \end{frame}
+
+
+    \begin{frame}{Light Sensitivity and Specificity}
+ \begin{figure}
+    \centering
+    \includegraphics[width=0.9\linewidth]{LightSensitivity.png}
+    \footnotesize
+    \caption{Cross-validated sensitivity by testing data. "True" states are based on non cross-validated results. No light indicates that only PA data was used in testing. The left and center panel only include latent states where the observed PA data was above/below the individual's median PA, respectively.}
+ \end{figure}
+ \end{frame}
+
+
 
 \end{document}
