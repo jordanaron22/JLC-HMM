@@ -14,3 +14,11 @@ RawData
 *.png
 Rlib
 *.Rhistory
+Output/SurvivalMStepValidation
+parse_sim_results.rds
+*.md
+*.ttf
+*.jpg
+*.aux
+main.*
+!*.tex
