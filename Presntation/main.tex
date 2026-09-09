@@ -182,7 +182,7 @@ active 5 hours (L5) quartile.}
     \item Actigraphy data from 2011-2012 and 2013-2014
     \item Directly measure activity and light
     \item Infer sleep/wake cycle using observed measurements
-    \item Light helps with determining sedentary behavior
+    \item Light helps distinguish low-activity wake periods from sleep
 \end{itemize}
 \end{frame}
 %------------------------------------------------
@@ -526,7 +526,7 @@ active 5 hours (L5) quartile.}
 \end{itemize}
 
 \[ \alpha_{d}(j,g) = \begin{cases}
-    P(a_{1},x_1|S_{1}=j,\mathcolor{red}{G=g}) 
+    p_j(g)P(a_{1},x_1|S_{1}=j,\mathcolor{red}{G=g}) 
     \mathcolor{red}{h(t|g)^\delta P(T > t|g)}& \text{if } d = 1 \\
     \sum_{k} \alpha_{d-1}(k,g)p_{kj}(d,g)P(a_{d},x_d|S_{d}=j,\mathcolor{red}{G=g}) & \text{if } d > 1\\
 \end{cases}\]
@@ -609,13 +609,13 @@ P(G=g|\mathbf{a,x},t)
 \begin{frame}{Variance Components}
 \small
 \renewcommand{\arraystretch}{1.35}
-\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.22\linewidth}>{\raggedright\arraybackslash}p{0.31\linewidth}>{\raggedright\arraybackslash}p{0.39\linewidth}@{}}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.27\linewidth}>{\raggedright\arraybackslash}p{0.67\linewidth}@{}}
 \toprule
-\textbf{Tool} & \textbf{Uncertainty} & \textbf{Contribution} \\
+\textbf{Component} & \textbf{Reason} \\
 \midrule
-Sandwich estimator & Strata/PSU & Design-based variance for NHANES \\
-Oakes Identity & Latent states/classes & Observed information for latent EM variables\\
-Murphy-Topel & Estimated class probabilities & first-stage uncertainty propagation \\
+Sandwich estimator & Design-based variance \\
+Oakes Identity & Observed-data information for an EM estimator \\
+% Murphy-Topel & First-stage uncertainty propagation for two-stage model\\
 \bottomrule
 \end{tabular}
 
@@ -623,12 +623,12 @@ Murphy-Topel & Estimated class probabilities & first-stage uncertainty propagati
 \end{frame}
 
 \begin{frame}{Sandwich Estimator}
-\small
-Let $\ell_i(\theta)$ denote participant $i$'s weighted log-likelihood contribution.
+% \small
+% Let $\ell_i(\theta)$ denote participant $i$'s weighted log-likelihood contribution.
 
 \[
 \resizebox{0.98\linewidth}{!}{$\displaystyle
-\widehat{\mathrm{Var}}(\widehat\theta)
+\mathrm{Var}(\widehat\theta)
 =
 \underbrace{
 \left[
@@ -636,65 +636,104 @@ Let $\ell_i(\theta)$ denote participant $i$'s weighted log-likelihood contributi
 \left.\frac{\partial^2\ell_i(\theta)}{\partial\theta\,\partial\theta^T}
 \right|_{\widehat\theta}
 \right]^{-1}
-}_{\text{bread}}
+}_{A^{-1}}
 \underbrace{
-\widehat{\mathrm{Var}}_d\!\left\{
+\widehat{\mathrm{Var}}\!\left[
 \sum_i
 \left.\frac{\partial\ell_i(\theta)}{\partial\theta}
 \right|_{\widehat\theta}
-\right\}
-}_{\text{meat}}
+\right]
+}_{B}
 \underbrace{
 \left[
 -\sum_i
 \left.\frac{\partial^2\ell_i(\theta)}{\partial\theta\,\partial\theta^T}
 \right|_{\widehat\theta}
 \right]^{-T}
-}_{\text{bread}}
+}_{A^{-T}}
 $}
 \]
 
 \begin{itemize}
-    \item \textbf{Bread:} inverse curvature of the weighted likelihood; converts score changes into parameter changes
-    \item \textbf{Meat:} sampling variability of the weighted score; NHANES strata and PSUs determine this term
+    \item \textbf{A:} How sharply does the likelihood pin down the parameter estimates?
+    \item \textbf{B:} How much does random sampling causes the score to fluctuate?
 \end{itemize}
 
 \end{frame}
 
 \begin{frame}{Oakes Identity}
 
-    Recall that $Q(\theta'|\theta)$ is the expected complete-data log-likelihood given the observed data and current parameter estimates
+    Recall that $Q(\theta|\theta^{(r)})$ is the expected complete-data log-likelihood given the observed data and current parameter estimates
 
 \[
-\mathcal I_{\mathrm{obs}}(\widehat\theta)=
+A=
 -\left[
-\frac{\partial^2 Q(\theta'|\theta)}{\partial\theta'\partial\theta'^{\!T}}
+\frac{\partial^2 Q(\theta|\theta^{(r)})}{\partial\theta\,\partial\theta^{T}}
 +
-\frac{\partial^2 Q(\theta'|\theta)}{\partial\theta'\partial\theta^{T}}
-\right]_{\theta'=\theta=\widehat\theta}
+\frac{\partial^2 Q(\theta|\theta^{(r)})}{\partial\theta\,\partial(\theta^{(r)})^{T}}
+\right]_{\theta=\theta^{(r)}=\widehat\theta}
 \]
 \medskip
 \begin{itemize}
-    \item The first term is the curvature of the M-step objective
-    \item The second term accounts for changes in the E-step state and class probabilities
-    \item Inverting $\mathcal I_{\mathrm{obs}}$ gives the bread for the sandwich estimator
+    \item The first term is the "standard" observed information
+    \item The second term accounts for changes in the E-step weights as the parameters change
 \end{itemize}
 
 \end{frame}
 
 
+
+% \begin{frame}{Murphy-Topel}
+
+% \small
+% \begin{center}
+% \resizebox{0.96\linewidth}{!}{%
+% \begin{tikzpicture}[>=stealth, node distance=1.05cm]
+% \node[draw, rounded corners, minimum width=2.25cm, minimum height=0.8cm] (hmm) {Longitudinal Model};
+% \node[draw, rounded corners, right=of hmm, minimum width=2.45cm, minimum height=0.8cm] (class) {Class probabilities};
+% \node[draw, rounded corners, right=of class, minimum width=2.3cm, minimum height=0.8cm] (cox) {Survival Model};
+% \draw[->, thick] (hmm) -- node[above] {} (class);
+% \draw[->, thick] (class) -- node[above] {} (cox);
+% \end{tikzpicture}
+% }
+% \end{center}
+% \begin{itemize}
+%     \item A naive Cox standard error treats class probabilities as fixed
+%     \item Murphy--Topel stacks estimating equations for both stages, using Oakes information for the MHMM to propagate first-stage uncertainty into the survival estimates
+% \end{itemize}
+
+% \[
+% \begin{bmatrix}
+% \displaystyle \frac{\partial\ell_{1i}(\widehat\theta_L)}{\partial\theta_L}\\
+% \\
+% \displaystyle \frac{\partial\ell_{2i}(\widehat\beta,\widehat\theta_L)}{\partial\beta}
+% \end{bmatrix}=\mathbf 0
+% \]
+
+% \[
+% \begin{gathered}
+% \theta_L=\text{longitudinal parameters}, \qquad
+% \beta=\text{survival parameters},\\
+% \ell_{1i}=\text{longitudinal log-likelihood}, \qquad
+% \ell_{2i}=\text{survival log-likelihood}
+% \end{gathered}
+% \]
+
+% \end{frame}
+
+
 \begin{frame}{Design-Based Variance}
 \small
-Within PSU $j$ in stratum $h$, sum the weighted scores:
+For PSU $j$ in stratum $h$ we have
 \[
 \mathbf U_{hj}=\sum_{i\in(h,j)}\frac{\partial\ell_i(\widehat\theta)}{\partial\theta},
 \qquad
-\overline{\mathbf U}_h=\frac{1}{m_h}\sum_{j=1}^{m_h}\mathbf U_{hj}.
+\overline{\mathbf U}_h=\frac{1}{m_h}\sum_{j=1}^{m_h}\mathbf U_{hj}
 \]
 
-The meat is the within-stratum variation of the PSU totals:
+and the design-based variance is
 \[
-\sum_h\frac{m_h}{m_h-1}\sum_{j=1}^{m_h}
+B = \sum_h m_h\frac{1}{m_h-1}\sum_{j=1}^{m_h}
 (\mathbf U_{hj}-\overline{\mathbf U}_h)
 (\mathbf U_{hj}-\overline{\mathbf U}_h)^T.
 \]
@@ -702,52 +741,12 @@ The meat is the within-stratum variation of the PSU totals:
 where $m_h$ is the number of PSUs in stratum $h$.
 \end{frame}
 
-\begin{frame}{Murphy-Topel}
-\small
-\begin{center}
-\resizebox{0.96\linewidth}{!}{%
-\begin{tikzpicture}[>=stealth, node distance=1.05cm]
-\node[draw, rounded corners, minimum width=2.25cm, minimum height=0.8cm] (hmm) {Longitudinal Model};
-\node[draw, rounded corners, right=of hmm, minimum width=2.45cm, minimum height=0.8cm] (class) {Class probabilities};
-\node[draw, rounded corners, right=of class, minimum width=2.3cm, minimum height=0.8cm] (cox) {Survival Model};
-\draw[->, thick] (hmm) -- node[above] {} (class);
-\draw[->, thick] (class) -- node[above] {} (cox);
-\end{tikzpicture}
-}
-\end{center}
-
-\begin{itemize}
-    \item A naive Cox standard error treats class probabilities as fixed
-    \item Murphy-Topel accounts for uncertainty introduced in stage 1 by formulating stacked estimating equations for both stages
-    \item Full two-stage variance estimation uses Oakes information for the first-stage MHMM within a Murphy--Topel sandwich that propagates first-stage uncertainty into the survival estimates
-\end{itemize}
-
-\[
-\underbrace{\sum_i w_i
-\begin{bmatrix}
-\mathbf u_{1i}(\widehat\theta_L)\\
-\mathbf u_{2i}(\widehat\beta,\widehat\theta_L)
-\end{bmatrix}}_{\mathbf U(\widehat\theta_L,\widehat\beta)}=\mathbf 0
-\]
-\[
-\begin{gathered}
-\theta_L=\text{longitudinal parameters}, \qquad
-\beta=\text{survival parameters},\\
-\mathbf u_{1i}=\text{Longitudinal score},\qquad
-\mathbf u_{2i}=\text{Survival score}
-\end{gathered}
-\]
-
-
-
-
-\end{frame}
-
 
 
  \section{Simulation} 
 
 \begin{frame}{Joint vs. Two-Stage}
+
 \begin{itemize}
     \item Two-stage model estimates longitudinal parameters first, then plugs latent class prediction into Cox model
     \item Joint model reduces possible misclassification by allowing for uncertainty in latent class
@@ -761,7 +760,7 @@ where $m_h$ is the number of PSUs in stratum $h$.
  \begin{figure}
      \centering
      \includegraphics[width=0.95\linewidth]{SimulationResults.png}
-     \caption{Survival coefficient relative bias by model type and mixture for 250 simulations with 5,000 individuals each.}
+     \caption{Survival coefficient RMSE by model type and mixture for 250 simulations with 5,000 individuals each.}
      \label{fig:enter-label}
  \end{figure}
  \end{frame}
@@ -797,21 +796,30 @@ where $m_h$ is the number of PSUs in stratum $h$.
    \begin{frame}{Cluster Drivers Results}
  \begin{figure}
     \centering
-    \includegraphics[width=0.9\linewidth]{SensSpecbyDataForPaper.png}
-    \caption{Cross validated latent class sensitivity and specificity by type of testing data used. Baseline "true" latent class was identified using full data. For sleep-wake cycle, the testing data only contained the locally decoded latent state. For null transition, a transition matrix with 0.5 for all entries was used.}
+    \includegraphics[width=0.8\linewidth]{SensSpecbyDataForPaper.png}
+    \caption{Cross validated latent class sensitivity/specificity by type of testing data. Baseline "true" latent class was identified using full data. For sleep-wake cycle, the testing data only contained the inferred latent state. For null transition, a transition matrix with 0.5 for all entries was used.}
  \end{figure}
  \end{frame}
 
 
- \begin{frame}
-     \centering
-     \Huge
-     Any Questions?
+ \begin{frame}{Conclusions}
+ \Large
+ \begin{itemize}
+     \setlength{\itemsep}{0.5em}
+     \item The JLCM reduced RMSE and improved coverage when longitudinal follow-up was limited.
+     \item In the NHANES application, joint and two-stage results were similar. Both identifying subgroups with increased mortality risk.
+     \item Activity and light appear to be the main drivers of latent class membership. The sleep/wake cycle also plays a role.
+ \end{itemize}
+
+ \vfill
+ \begin{center}
+     \Huge Questions?
+ \end{center}
  \end{frame}
 
 
  \appendix
- \section*{Appentix}
+ \section*{Appendix}
 
 
 

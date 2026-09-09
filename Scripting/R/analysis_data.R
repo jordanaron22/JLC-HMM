@@ -140,6 +140,8 @@ PrepareNHANESSEAnalysisData <- function(settings,est_params,data_dir = NULL){
     lod_act = nhanes_data$lod_act,
     lod_light = nhanes_data$lod_light,
     subject_id = as.character(nhanes_data$id$SEQN),
+    survey_strata = nhanes_data$id$SDMVSTRA,
+    survey_psu = nhanes_data$id$SDMVPSU,
     data_source = DATA_SOURCE[["nhanes"]],
     data_dir = data_dir
   )

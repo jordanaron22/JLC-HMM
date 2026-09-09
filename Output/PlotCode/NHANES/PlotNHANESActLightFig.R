@@ -101,10 +101,10 @@ act_light_plot <- ggplot(
 print(act_light_plot)
 
 dir.create(dirname(output_prefix),recursive = TRUE,showWarnings = FALSE)
-ggsave(
-  paste0(output_prefix,".png"),
-  act_light_plot,
-  width = 10,
-  height = 6,
-  dpi = 300
-)
+# ggsave(
+#   paste0(output_prefix,".png"),
+#   act_light_plot,
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )

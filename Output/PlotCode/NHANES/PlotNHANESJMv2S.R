@@ -20,6 +20,7 @@ two_stage_file <- if (length(args) >= 2){
 }
 output_prefix <- file.path("Output","Figures","nhanes_jm_vs_two_stage")
 
+
 read_class_hr <- function(model_file,model_label,se_method){
   load_env <- new.env()
   load(model_file,envir = load_env)
@@ -159,4 +160,4 @@ png(
   res = 300
 )
 plot(jm_vs_two_stage_plot,autofit = TRUE)
-dev.off()
+# dev.off()

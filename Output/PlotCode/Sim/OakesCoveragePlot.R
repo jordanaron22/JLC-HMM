@@ -14,6 +14,7 @@ class_output_prefix <- file.path(
 
 
 title_case <- function(x){
+  x <- as.character(x)
   paste0(toupper(substr(x,1,1)),substr(x,2,nchar(x)))
 }
 
@@ -41,7 +42,7 @@ cov_summary <- x$class_beta_summary
 
 
 wide_cov <- cov_summary %>%
-  select(
+  dplyr::select(
     simulation_days, num_people, true_mix_num, fit_mix_num,
     emission_overlap, param_name, model_type,
     coverage, mean_bias, rmse, median_se, se_method
@@ -114,7 +115,11 @@ make_coverage_plot_data <- function(wide_data){
     levels = make_days_label(day_values)
   )
 
-  overlap_values <- sort(unique(plot_data$emission_overlap))
+  overlap_values <- c("low","mid","high")
+  plot_data$emission_overlap <- factor(
+    plot_data$emission_overlap,
+    levels = overlap_values
+  )
   plot_data$overlap_label <- factor(
     paste0("Overlap: ",title_case(plot_data$emission_overlap)),
     levels = paste0("Overlap: ",title_case(overlap_values))
@@ -125,6 +130,13 @@ make_coverage_plot_data <- function(wide_data){
 
 scenario_plot_data <- make_coverage_plot_data(scenario_cov)
 
+# library(stringr)
+# scenario_plot_data <- scenario_plot_data %>% 
+#   filter(model_type == "Joint" | model_type == "Two-Stage Naive") %>% 
+#   filter(overlap_label == 'Overlap: Low') %>% 
+#   mutate(model_type = str_replace_all(model_type, "Two-Stage Naive", "Two-Stage"))%>% 
+#   mutate(model_type = str_replace_all(model_type, "Joint", "JLCM"))
+
 scenario_coverage_plot <- ggplot(
   scenario_plot_data,
   aes(x = days_label,y = coverage,fill = model_type)
@@ -132,13 +144,13 @@ scenario_coverage_plot <- ggplot(
   geom_col(position = position_dodge(width = 0.8),width = 0.7,
            color = "black") +
   geom_hline(yintercept = 0.95,linetype = "dashed",color = "gray35") +
-  facet_grid(rows = vars(overlap_label)) +
+  # facet_grid(rows = vars(overlap_label)) +
   coord_cartesian(ylim = c(0,1)) +
   scale_fill_viridis_d(end = .85,name = "Model") +
   labs(x = "Simulation Days",
        y = "Coverage",
        fill = "Model",
-       title = "Average Survival Class-Beta Coverage") +
+       title = "Latent Class Survival Coefficient Coverage") +
   theme_bw()
 
 print(scenario_coverage_plot)
