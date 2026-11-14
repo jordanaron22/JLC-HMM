@@ -20,7 +20,8 @@ default_settings <- list(
   run_bootstrap = FALSE,
   init_jitter_scale = 0.00,
   run_leave_one_out_cv = FALSE,
-  use_hot_start = FALSE,
+  use_hot_start = TRUE,
+  resampling_method = "none",
   class_selection_run = FALSE,
   emission_overlap = "mid", # "low" = 1, "mid" (medium) = 0.75, "high" = 0.5
   simulation_days = DEFAULT_SIMULATION_DAYS,
@@ -81,8 +82,10 @@ add_legacy_settings <- function(settings){
   settings
 }
 
-build_settings <- function(cli_args = commandArgs(TRUE),
-                           sim_num = suppressWarnings(as.numeric(Sys.getenv('SLURM_ARRAY_TASK_ID')))){
+build_settings <- function(
+    cli_args = commandArgs(TRUE),
+    sim_num = suppressWarnings(as.numeric(Sys.getenv('SLURM_ARRAY_TASK_ID'))),
+    parse_jmhmm_resampling = FALSE){
   if (is.na(sim_num)){sim_num <- 1}
 
   settings <- default_settings
@@ -107,6 +110,15 @@ build_settings <- function(cli_args = commandArgs(TRUE),
     memory_limit_gb = get_numeric_arg(cli_args,CLI_ARG$memory_limit_gb)
   )
 
+  # Argument 16 is deliberately opt-in.  JLC-HMMse.R and
+  # JLC-HMMse-two-stage.R already assign different meanings to arguments at
+  # this position, so only the primary JMHMM entry point enables this parser.
+  if (isTRUE(parse_jmhmm_resampling)){
+    command_settings$resampling_method <- get_arg(
+      cli_args,CLI_ARG$jmhmm_resampling_method
+    )
+  }
+
   for (setting_name in names(command_settings)){
     if (!is_missing_setting(command_settings[[setting_name]])){
       settings[[setting_name]] <- command_settings[[setting_name]]
@@ -120,6 +132,11 @@ build_settings <- function(cli_args = commandArgs(TRUE),
     settings$true_mix_num <- settings$fit_mix_num
   }
 
+  if (identical(settings$resampling_method,NHANES_JKN_METHOD)){
+    settings$replicate_id <- as.integer(settings$sim_num)
+    settings$reference_seed <- NHANES_JKN_REFERENCE_SEED
+  }
+
   add_legacy_settings(settings)
 }
 
@@ -129,6 +146,22 @@ format_setting_label <- function(value){
 }
 
 build_model_name <- function(settings){
+  if (identical(settings$resampling_method,NHANES_JKN_METHOD)){
+    model_label <- if (
+      settings$model_type == "joint"
+    ) {
+      "Joint"
+    } else {
+      "TwoStage"
+    }
+    return(paste0(
+      "JMHMMJKn",model_label,"ReducedFitMix",settings$fit_mix_num,
+      "RefSeed",NHANES_JKN_REFERENCE_SEED,
+      "Rep",sprintf("%03d",settings$replicate_id),
+      "len",settings$period_len,".rda"
+    ))
+  }
+
   model_name <- "JMHMM"
   if (!settings$real_data){
     model_name <- paste0(

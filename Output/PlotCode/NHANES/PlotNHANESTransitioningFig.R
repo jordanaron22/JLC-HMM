@@ -3,7 +3,7 @@
 library(dplyr)
 library(ggplot2)
 
-model_file <- file.path("Data","JMHMMFitMix5Seed.rda")
+model_file <- file.path("Data","JMHMMRandInitReducedFitMix5Seed159len96.rda")
 output_prefix <- file.path("Output","Figures","nhanes_transitioning_fig")
 
 load(model_file)
@@ -16,8 +16,12 @@ stopifnot(
 )
 
 plot_df <- tran_df |>
-  filter(weekend == 1) |>
   mutate(
+    day_type = factor(
+      weekend,
+      levels = c(1,2),
+      labels = c("Weekday","Weekend")
+    ),
     transition = ifelse(type == "Falling Asleep","Wake to Sleep","Sleep to Wake"),
     transition = factor(transition,levels = c("Wake to Sleep","Sleep to Wake")),
     latent_class = factor(mixture)
@@ -28,7 +32,7 @@ transitioning_plot <- ggplot(
   aes(x = time,y = prob,color = latent_class)
 ) +
   geom_line(linewidth = 1) +
-  facet_wrap(~ transition,nrow = 1) +
+  facet_grid(rows = vars(day_type),cols = vars(transition)) +
   scale_color_viridis_d(end = .95,name = "Latent Class") +
   scale_x_continuous(
     limits = c(0,25),
@@ -36,8 +40,8 @@ transitioning_plot <- ggplot(
     name = "Hour"
   ) +
   scale_y_continuous(
-    limits = c(0,.375),
-    breaks = seq(0,.3,.1),
+    limits = c(0,.45),
+    breaks = seq(0,.4,.1),
     name = "Probability of Transitioning States"
   ) +
   labs(title = "Probability of Transitioning States by Hour and Latent Class") +

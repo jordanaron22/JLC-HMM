@@ -51,12 +51,13 @@ source_jmhmm_module <- function(module_file){
 for (module_file in c("constants.R","saved_results.R","validation.R",
                       "settings.R","params.R","transitions.R",
                       "emissions_tobit.R","forward_backward.R",
-                      "oakes_info.R","data_simulation.R","helpers.R","data_nhanes.R",
+                      "oakes_info.R","data_simulation.R","helpers.R",
+                      "jackknife.R","data_nhanes.R",
                       "survival.R","diagnostics.R")){
   source_jmhmm_module(module_file)
 }
 
-settings <- build_settings()
+settings <- build_settings(parse_jmhmm_resampling = TRUE)
 settings$model_name <- build_model_name(settings)
 
 cli_args <- settings$command_args
@@ -64,7 +65,14 @@ sim_num <- settings$sim_num
 
 # Compatibility aliases: most of the legacy script still reads these names.
 list2env(settings, envir = environment())
-output_dir <- if (dir.exists("Routputs")){"Routputs"} else {"."}
+current_dir_name <- basename(normalizePath(getwd(),mustWork = TRUE))
+output_dir <- if (identical(current_dir_name,"Routputs")){
+  "."
+} else if (dir.exists("Routputs")){
+  "Routputs"
+} else {
+  "."
+}
 
 print("Command line arguments:")
 print(cli_args)
@@ -73,7 +81,16 @@ print(settings)
 
 if (set_seed){set.seed(sim_num)}
 
-print(paste("Sim Seed:",sim_num,"Fit HMM Num:",fit_mix_num,"True HMM Num:",true_mix_num))
+if (IsNHANESJKn(resampling_method)){
+  print(paste(
+    "JKn Replicate:",replicate_id,
+    "Reference Seed:",reference_seed,
+    "Fit HMM Num:",fit_mix_num
+  ))
+} else {
+  print(paste("Sim Seed:",sim_num,"Fit HMM Num:",fit_mix_num,
+              "True HMM Num:",true_mix_num))
+}
 print(model_name)
 
 ################## EM Setup ################## 
@@ -118,6 +135,8 @@ beta_vec_start <- fit_param_list$beta_vec
 lambda_act_mat_start <- fit_param_list$lambda_act_mat
 lambda_light_mat_start <- fit_param_list$lambda_light_mat
 #loads data in for a hot start
+jkn_reference_to_save <- NULL
+jkn_reference_file <- NULL
 if (load_data){
   model_name_loadin <- "JMHMM"
   load_mix_num <- if (real_data){fit_mix_num} else {true_mix_num}
@@ -127,8 +146,28 @@ if (load_data){
     folder_name <- paste0("NS",folder_name)
   }
 
-  use_seed_specific_nhanes_hot_start <- real_data && !leave_out
-  if (use_seed_specific_nhanes_hot_start){
+  use_nhanes_jkn_hot_start <- IsNHANESJKn(resampling_method)
+  use_seed_specific_nhanes_hot_start <-
+    real_data && !leave_out && !use_nhanes_jkn_hot_start
+  if (use_nhanes_jkn_hot_start){
+    jkn_reference_file <- NHANESJKnReferencePath(
+      model_type = model_type,
+      data_dir = "Data"
+    )
+    print(paste("Loading fixed Seed 33 NHANES JKn reference",
+                jkn_reference_file))
+    to_save <- load_to_save_from_path(jkn_reference_file)
+    ValidateNHANESJKnReference(
+      to_save = to_save,
+      reference_file = jkn_reference_file,
+      model_type = model_type
+    )
+    jkn_reference_to_save <- to_save
+    settings$reference_file <- normalizePath(
+      jkn_reference_file,mustWork = TRUE
+    )
+    settings$restart_input_file <- settings$reference_file
+  } else if (use_seed_specific_nhanes_hot_start){
     seed_specific_name <- paste0(
       model_name_loadin,
       "RandInitReducedFitMix",fit_mix_num,
@@ -201,7 +240,9 @@ if (load_data){
   validate_saved_results(
     to_save,
     required_sections = c("est_params"),
-    source_name = if (use_seed_specific_nhanes_hot_start){
+    source_name = if (use_nhanes_jkn_hot_start){
+      jkn_reference_file
+    } else if (use_seed_specific_nhanes_hot_start){
       hot_start_file
     } else {
       model_name_loadin
@@ -374,7 +415,9 @@ if (real_data) {
     weekend_only = weekend_only,
     load_data = load_data,
     surv_coef_true = get0("surv_coef_true",ifnotfound = NULL),
-    data_dir = "Data"
+    data_dir = "Data",
+    resampling_method = resampling_method,
+    replicate_id = get0("replicate_id",ifnotfound = sim_num)
   )
   invisible(list2env(nhanes_data,envir = environment()))
 }
@@ -497,6 +540,10 @@ pi_l <- CalcPi(nu_mat,nu_covar_mat)
 if (!leave_out & !load_data){re_prob <- pi_l}
 if (load_data & !real_data){re_prob <- pi_l}
 if (load_data & period_len != 96){re_prob <- pi_l}
+# A JKn replicate has removed one PSU, so participant-specific posterior
+# probabilities from the full Seed 33 fit must never be used as its initial
+# probabilities.  The fixed fitted parameters remain the hot start.
+if (IsNHANESJKn(resampling_method)){re_prob <- pi_l}
 if (!is.null(dim(re_prob)) && ncol(re_prob) != fit_mix_num){re_prob <- pi_l}
 if (!is.null(dim(re_prob)) && nrow(re_prob) != nrow(pi_l)){re_prob <- pi_l}
 if (is.null(dim(re_prob))){re_prob <- matrix(re_prob,ncol = 1)}
@@ -1964,6 +2011,22 @@ to_save <- make_saved_results(true_params = true_params,
                               settings = settings,
                               start_params = start_params,
                               aic = aic)
+if (IsNHANESJKn(resampling_method)){
+  if (is.null(jkn_reference_to_save) ||
+      length(jackknife_design) == 0L){
+    stop("NHANES JKn reference or design metadata are unavailable at save time")
+  }
+  to_save$jackknife <- MakeNHANESJKnResult(
+    jackknife_design = jackknife_design,
+    reference_to_save = jkn_reference_to_save,
+    reference_file = jkn_reference_file,
+    replicate_seqn = id$SEQN,
+    re_prob = re_prob,
+    beta_vec = beta_vec,
+    surv_coef = surv_coef,
+    covariate_names = names(surv_covar)
+  )
+}
 # model_name <- paste0("ReRun",model_name)
 final_file <- file.path(output_dir,model_name)
 inter_file <- file.path(output_dir,paste0("Inter",model_name))

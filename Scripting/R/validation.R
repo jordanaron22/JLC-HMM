@@ -48,6 +48,13 @@ validate_settings <- function(settings, model_type_codes, data_source_values,
     stop(paste("data_source must be one of:",paste(data_source_values,collapse = ", ")))
   }
 
+  settings$resampling_method <- tolower(as.character(
+    settings$resampling_method
+  ))
+  if (!settings$resampling_method %in% c("none",NHANES_JKN_METHOD)){
+    stop("resampling_method must be one of: none, nhanes_jkn")
+  }
+
   logical_setting_names <- c("run_bootstrap","run_leave_one_out_cv",
                              "use_hot_start","use_seed","include_activity",
                              "include_light","check_transition_update",
@@ -92,6 +99,43 @@ validate_settings <- function(settings, model_type_codes, data_source_values,
   if (!settings$emission_overlap %in% names(emission_overlap_factor)){
     stop(paste("emission_overlap must be one of:",
                paste(names(emission_overlap_factor),collapse = ", ")))
+  }
+
+  if (identical(settings$resampling_method,NHANES_JKN_METHOD)){
+    if (settings$data_source != DATA_SOURCE[["nhanes"]]){
+      stop("nhanes_jkn requires data_source = nhanes")
+    }
+    if (settings$run_bootstrap){
+      stop("nhanes_jkn requires run_bootstrap = false")
+    }
+    if (settings$run_leave_one_out_cv){
+      stop("nhanes_jkn requires run_leave_one_out_cv = false")
+    }
+    if (!settings$use_hot_start){
+      stop("nhanes_jkn requires use_hot_start = true")
+    }
+    if (settings$init_jitter_scale != 0){
+      stop("nhanes_jkn requires init_jitter_scale = 0")
+    }
+    if (!settings$save_reduced_output){
+      stop("nhanes_jkn requires save_reduced_output = true")
+    }
+    if (settings$fit_mix_num != 5){
+      stop("nhanes_jkn currently requires fit_mix_num = 5")
+    }
+    if (settings$periods_per_day != DEFAULT_PERIODS_PER_DAY){
+      stop("nhanes_jkn currently requires periods_per_day = 96")
+    }
+    replicate_id <- suppressWarnings(as.numeric(settings$sim_num))
+    if (length(replicate_id) != 1 || is.na(replicate_id) ||
+        replicate_id != floor(replicate_id) || replicate_id < 1 ||
+        replicate_id > NHANES_JKN_EXPECTED_PSUS){
+      stop(paste0(
+        "For nhanes_jkn, SLURM_ARRAY_TASK_ID/sim_num must be an integer ",
+        "from 1 through ",NHANES_JKN_EXPECTED_PSUS,"; got ",
+        settings$sim_num
+      ))
+    }
   }
 
   settings

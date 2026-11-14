@@ -1,0 +1,43 @@
+% Requires \usepackage{booktabs} and \usepackage{graphicx}.
+
+\begin{table}[!htbp]
+\centering
+\caption{Class size, mortality risk, and physical activity profiles across the four-, five-, and six-class joint models}
+\label{tab:nhanes-class-pa-hr-sensitivity}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{ccrrrrrr}
+\toprule
+Model ($G$) & Class & $n$ (\%) & HR & \multicolumn{2}{c}{Weekday PA mean} & \multicolumn{2}{c}{Weekend PA mean} \\
+\cmidrule(lr){5-6} \cmidrule(lr){7-8}
+& & & & Wake & Sleep & Wake & Sleep \\
+\midrule
+4 & 1 & 1,261 (19.5\%) & 1.000 & 2.425 & $-5.496$ & 2.482 & $-5.506$ \\
+4 & 2 & 3,481 (53.7\%) & 1.067 & 2.303 & $-8.808$ & 2.310 & $-8.734$ \\
+4 & 3 & 1,115 (17.2\%) & 1.068 & 2.294 & $-2.998$ & 2.273 & $-3.001$ \\
+4 & 4 & 626 (9.7\%) & 1.576 & 2.358 & $-1.444$ & 2.402 & $-1.401$ \\
+\addlinespace
+5 & 1 & 2,157 (33.3\%) & 1.000 & 2.557 & $-9.033$ & 2.552 & $-8.869$ \\
+5 & 2 & 1,114 (17.2\%) & 1.282 & 2.348 & $-4.963$ & 2.402 & $-4.968$ \\
+5 & 3 & 1,030 (15.9\%) & 1.362 & 2.249 & $-2.999$ & 2.233 & $-2.995$ \\
+5 & 4 & 1,662 (25.6\%) & 1.588 & 1.914 & $-8.665$ & 1.940 & $-8.572$ \\
+5 & 5 & 520 (8.0\%) & 1.747 & 2.338 & $-2.640$ & 2.487 & $-1.519$ \\
+\addlinespace
+6 & 1 & 935 (14.4\%) & 1.000 & 2.504 & $-5.505$ & 2.561 & $-5.461$ \\
+6 & 2 & 2,051 (31.6\%) & 1.209 & 2.545 & $-9.131$ & 2.539 & $-8.923$ \\
+6 & 3 & 1,105 (17.0\%) & 1.539 & 2.288 & $-3.007$ & 2.264 & $-3.009$ \\
+6 & 4 & 1,580 (24.4\%) & 1.788 & 1.892 & $-8.874$ & 1.924 & $-8.837$ \\
+6 & 5 & 261 (4.0\%) & 2.385 & 1.790 & $-5.041$ & 0.983 & $-4.760$ \\
+6 & 6 & 551 (8.5\%) & 2.393 & 2.399 & $-1.425$ & 2.444 & $-1.374$ \\
+\bottomrule
+\end{tabular}%
+}
+\begin{minipage}{0.92\linewidth}
+\footnotesize
+\textit{Note.} Classes within each model are ordered by increasing estimated
+mortality hazard. HR denotes the class-specific mortality hazard ratio relative
+to Class 1 of the same model. Class sizes use maximum-posterior assignments.
+Wake and sleep PA means are estimated class-specific weekday and weekend
+means on the log-MIMS scale; consequently, a less negative sleep PA mean indicates
+greater sleep-period activity.
+\end{minipage}
+\end{table}

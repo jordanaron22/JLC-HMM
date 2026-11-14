@@ -13,7 +13,9 @@ CLI_ARG <- list(
   class_selection_run = 12,
   emission_overlap = 13,
   time_limit_hours = 14,
-  memory_limit_gb = 15
+  memory_limit_gb = 15,
+  # JMHMM.R only.  The SE entry points use their own trailing arguments.
+  jmhmm_resampling_method = 16
 )
 
 MODEL_TYPE_CODES <- c(two_stage = 0, joint = 2)
@@ -31,6 +33,17 @@ HOURLY_PERIODS_PER_DAY <- 24
 MINUTE_PERIODS_PER_DAY <- 1440
 LOD_OFFSET <- 1e-5
 NHANES_NUM_WAVES <- 2
+NHANES_JKN_METHOD <- "nhanes_jkn"
+NHANES_JKN_REFERENCE_SEED <- 33L
+NHANES_JKN_EXPECTED_PARTICIPANTS <- 6483L
+NHANES_JKN_EXPECTED_STRATA <- 29L
+NHANES_JKN_EXPECTED_PSUS <- 61L
+NHANES_JKN_EXPECTED_DF <- 32L
+
+IsNHANESJKn <- function(resampling_method){
+  identical(tolower(as.character(resampling_method)),NHANES_JKN_METHOD)
+}
+
 NHANES_CV_FOLD_COUNT <- 20
 NHANES_CV_FOLD_SEED <- 999
 CV_SURVIVAL_INTERVAL_BREAKS <- seq(0,102,by = 6)

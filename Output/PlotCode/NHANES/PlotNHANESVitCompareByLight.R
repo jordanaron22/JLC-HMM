@@ -3,7 +3,7 @@
 library(ggplot2)
 library(patchwork)
 
-model_file <- file.path("Data","JMHMMFitMix5Seed.rda")
+model_file <- file.path("Data","JMHMMRandInitReducedFitMix5Seed159len96.rda")
 nhanes_file <- file.path("Data","NHANES_2011_2012_2013_2014.rda")
 wave_g_file <- file.path("Data","Wavedata_G.rda")
 wave_h_file <- file.path("Data","Wavedata_H.rda")
@@ -395,10 +395,10 @@ vit_compare_plot <-
 print(vit_compare_plot)
 
 dir.create(dirname(output_prefix),recursive = TRUE,showWarnings = FALSE)
-ggsave(
-  paste0(output_prefix,".png"),
-  vit_compare_plot,
-  width = 12,
-  height = 8,
-  dpi = 300
-)
+# ggsave(
+#   paste0(output_prefix,".png"),
+#   vit_compare_plot,
+#   width = 12,
+#   height = 8,
+#   dpi = 300
+# )

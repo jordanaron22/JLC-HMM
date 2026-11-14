@@ -3,7 +3,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --mail-type=FAIL,TIME_LIMIT
 #SBATCH --mail-user=aron0064@umn.edu
-#SBATCH --array=1-110
+#SBATCH --array=1-20
 #SBATCH -A mfiecas
 #SBATCH -o LogFiles/%A_%a.out
 #SBATCH -e LogFiles/%A_%a.err
@@ -22,12 +22,13 @@ class_selection_run=${12:-false}
 emission_overlap=${13:-low}
 time_limit_hours=${14:-NA}
 memory_limit_gb=${15:-NA}
+resampling_method=${16:-none}
 date
 path="/projects/standard/mfiecas/aron0064/JLC-HMM"
 cd $path/Routputs
 start_time=$(date +%s)
 module load R/4.4.0-openblas-rocky8
-Rscript $path/Rcode/JMHMM.R $fit_mix_num $model_type $data_source $run_bootstrap $init_jitter_scale $run_leave_one_out_cv $use_hot_start $simulation_days $num_people $true_mix_num $save_reduced_output $class_selection_run $emission_overlap $time_limit_hours $memory_limit_gb
+Rscript $path/Rcode/JMHMM.R $fit_mix_num $model_type $data_source $run_bootstrap $init_jitter_scale $run_leave_one_out_cv $use_hot_start $simulation_days $num_people $true_mix_num $save_reduced_output $class_selection_run $emission_overlap $time_limit_hours $memory_limit_gb $resampling_method
 finish_time=$(date +%s)
 elapsed_time=$((finish_time  - start_time))
 

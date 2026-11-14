@@ -1494,33 +1494,51 @@ DiagnoseOakesInformation <- function(H1,H2){
                                          sum(minus_eigen <= 0)))
 }
 
-CalcOakesInitialCounts <- function(alpha,beta,pi_l,sweights_vec){
+#helper function to get state/class probabilities for all individuals
+CalcOakesInitialPosteriorProb <- function(alpha, beta, pi_l){
+
+  n <- length(alpha)
   mix_num <- ncol(pi_l)
   state_num <- dim(alpha[[1]])[2]
-  counts <- matrix(0,nrow = mix_num,ncol = state_num)
 
-  if (length(sweights_vec) != length(alpha)){
-    stop("sweights_vec must have one entry per subject")
-  }
+  initial_prob <- array(
+    0,
+    dim = c(n, mix_num, state_num)
+  )
 
-  ind_like_vec <- CalcLikelihoodIndVec(alpha,pi_l)
+  individual_loglik <- CalcLikelihoodIndVec(alpha, pi_l)
 
-  for (ind in seq_along(alpha)){
-    ind_like <- ind_like_vec[ind]
-
-    for (g in seq_len(mix_num)){
-      log_count <- alpha[[ind]][1,,g] +
-        beta[[ind]][1,,g] +
-        log(pi_l[ind,g]) -
-        ind_like +
-        log(sweights_vec[ind])
-
-      counts[g,] <- counts[g,] + exp(log_count)
+  for (i in seq_len(n)) {
+    for (g in seq_len(mix_num)) {
+      initial_prob[i, g, ] <- exp(
+        alpha[[i]][1, , g] +
+          beta[[i]][1, , g] +
+          log(pi_l[i, g]) -
+          individual_loglik[i]
+      )
     }
   }
 
-  counts
+  initial_prob
 }
+
+CalcOakesInitialCounts <- function(alpha,beta,pi_l,sweights_vec){
+  initial_prob <- CalcOakesInitialPosteriorProb(
+    alpha = alpha,
+    beta = beta,
+    pi_l = pi_l
+  )
+
+  weighted_prob <- sweep(
+    initial_prob,
+    MARGIN = 1,
+    STATS = sweights_vec,
+    FUN = "*"
+  )
+
+  apply(weighted_prob, c(2, 3), sum)
+}
+
 
 CalcOakesInitialH1 <- function(init,init_counts,
                                sleep_state = SLEEP_STATE){
@@ -2020,13 +2038,15 @@ CalcOakesTransitionScoreFromPosterior <- function(params_tran_array,
                                                   active_vcovar_inds,
                                                   period_len,
                                                   sweights_vec,
-                                                  drop_nonfinite_weights =
-                                                    TRUE){
+                                                  drop_nonfinite_weights = TRUE){
+  
   len <- dim(vcovar_mat)[1]
   mix_num <- dim(params_tran_array)[1]
   vcovar_num <- dim(params_tran_array)[3]
+  n <- ncol(vcovar_mat)
 
-  transition_score <- array(0,dim = c(6,mix_num,vcovar_num))
+  participant_score_array <- array(0, dim = c(n, 6, mix_num, vcovar_num))
+
   tran_list_mat <- GenTranColVecList(params_tran_array,len,mix_num,
                                      vcovar_num,period_len = period_len)
   cos_vec <- cos(2 * pi * seq(2,len) / period_len)
@@ -2065,11 +2085,12 @@ CalcOakesTransitionScoreFromPosterior <- function(params_tran_array,
             tran_prime <- tran_mat[,4]
           }
 
-          transition_weight <- (tran_vals[,ind,re_ind] * sweights_vec[ind])
-          finite_weight <- is.finite(transition_weight)
+          posterior_weight <- tran_vals[, ind, re_ind]
+
+          finite_weight <- is.finite(posterior_weight)
           dropped_weight_count <- dropped_weight_count + sum(!finite_weight)
           if (!drop_nonfinite_weights && any(!finite_weight)){
-            stop("transition_weights contains non-finite values")
+            stop("transition_weights (posterior_weight var) contains non-finite values")
           }
 
           for (vcovar_ind in active_vcovar_inds){
@@ -2080,27 +2101,50 @@ CalcOakesTransitionScoreFromPosterior <- function(params_tran_array,
             }
 
             param_offset <- if (init_state == 1) 0 else 3
-            transition_score[param_offset + 1,re_ind,vcovar_ind] <-
-              transition_score[param_offset + 1,re_ind,vcovar_ind] +
-              sum(transition_weight[keep] * tran_prime[keep])
-            transition_score[param_offset + 2,re_ind,vcovar_ind] <-
-              transition_score[param_offset + 2,re_ind,vcovar_ind] +
-              sum(transition_weight[keep] * tran_prime[keep] *
-                    cos_vec[keep])
-            transition_score[param_offset + 3,re_ind,vcovar_ind] <-
-              transition_score[param_offset + 3,re_ind,vcovar_ind] +
-              sum(transition_weight[keep] * tran_prime[keep] *
-                    sin_vec[keep])
+
+
+            base_contribution <- posterior_weight[keep] * tran_prime[keep]
+
+            participant_score_array[ind, param_offset + 1, re_ind, vcovar_ind] <- 
+              participant_score_array[ind, param_offset + 1, re_ind, vcovar_ind] + sum(base_contribution)
+
+
+            participant_score_array[ind, param_offset + 2, re_ind, vcovar_ind] <- 
+              participant_score_array[ind, param_offset + 2, re_ind, vcovar_ind]+ sum(base_contribution * cos_vec[keep])
+
+            participant_score_array[ind, param_offset + 3, re_ind, vcovar_ind] <- 
+              participant_score_array[ ind, param_offset + 3, re_ind, vcovar_ind]+ sum(base_contribution * sin_vec[keep])
           }
         }
       }
     }
   }
 
+  weighted_participant_score_array <- sweep(
+    participant_score_array,
+    MARGIN = 1,
+    STATS = sweights_vec,
+    FUN = "*"
+  )
+
+  transition_score <- apply(
+    weighted_participant_score_array,
+    MARGIN = c(2, 3, 4),
+    FUN = sum
+  )
+
+  participant_score <-
+    TransitionParticipantScoreArrayToMatrix(
+      participant_score_array,
+      active_vcovar_inds
+    )
+
   list(score_array = transition_score,
-       score = TransitionScoreArrayToVector(transition_score,
+    score = TransitionScoreArrayToVector(transition_score,
                                             active_vcovar_inds),
-       dropped_weight_count = dropped_weight_count)
+    participant_score_array = participant_score_array,
+    participant_score = participant_score,
+    dropped_weight_count = dropped_weight_count)
 }
 
 TransitionHessianArrayToMatrix <- function(hessian_array,active_vcovar_inds){
@@ -2122,6 +2166,40 @@ TransitionHessianArrayToMatrix <- function(hessian_array,active_vcovar_inds){
   }
 
   hessian
+}
+
+TransitionParticipantScoreArrayToMatrix <- function(
+    participant_score_array,
+    active_vcovar_inds){
+
+  n <- dim(participant_score_array)[1]
+  block_size <- dim(participant_score_array)[2]
+  mix_num <- dim(participant_score_array)[3]
+
+  score_ind <- matrix(
+    0,
+    nrow = n,
+    ncol =
+      block_size * mix_num * length(active_vcovar_inds)
+  )
+
+  pos <- 1
+
+  for (vcovar_ind in active_vcovar_inds) {
+    for (g in seq_len(mix_num)) {
+      idx <- pos:(pos + block_size - 1)
+
+      score_ind[, idx] <- matrix(
+        participant_score_array[, , g, vcovar_ind],
+        nrow = n,
+        ncol = block_size
+      )
+
+      pos <- pos + block_size
+    }
+  }
+
+  score_ind
 }
 
 CalcOakesTransitionH1 <- function(alpha,beta,act,light,params_tran_array,
@@ -2394,4 +2472,387 @@ DiagnoseOakesScore <- function(oakes_score){
   out$score <- score[bad]
   rownames(out) <- NULL
   out
+}
+
+
+#following functionr for meat of sandwich estimator
+
+CalcOakesParticipantScores <- function(
+    theta,
+    theta_pack,
+    posterior_context,
+    subject_id = NULL){
+
+  params <- UnpackOakesTheta(theta, theta_pack)
+  parameter_map <- theta_pack$parameter_map
+
+  n <- length(posterior_context$alpha)
+  p <- length(theta)
+
+  if (is.null(subject_id)) {
+    subject_id <- seq_len(n)
+  }
+
+  score_unweighted <- matrix(
+    0,
+    nrow = n,
+    ncol = p,
+    dimnames = list(
+      as.character(subject_id),
+      names(theta)
+    )
+  )
+
+  fill_block <- function(block, block_score){
+    idx <- which(parameter_map$block == block)
+
+    if (!all(dim(block_score) == c(n, length(idx)))) {
+      stop("Participant-score dimensions are incorrect for block ", block)
+    }
+
+    score_unweighted[, idx] <<- block_score
+  }
+
+  ##### Init block #####
+  initial_prob <- CalcOakesInitialPosteriorProb(
+    alpha = posterior_context$alpha,
+    beta = posterior_context$beta,
+    pi_l = posterior_context$pi_l
+  )
+
+  initial_score_unweighted <- CalcOakesInitialParticipantScore(
+    init = params$init,
+    initial_prob = initial_prob,
+    sleep_state = theta_pack$sleep_state
+  )
+
+  fill_block("initial", initial_score_unweighted)
+  ##### Init Block #####
+
+  ##### Mixing block #####
+  mixing_score_unweighted <- CalcOakesMixingParticipantScore(
+    nu_mat = params$nu_mat,
+    re_prob = posterior_context$re_prob,
+    pi_l = posterior_context$pi_l,
+    nu_covar_mat = posterior_context$nu_covar_mat
+  )
+
+  fill_block("mixing", mixing_score_unweighted)
+  ##### End mixing block #####
+
+  ##### Transition Block ##### 
+  transition_result <- CalcOakesTransitionScoreFromPosterior(
+    params_tran_array = params$params_tran_array,
+    transition_weights =
+      posterior_context$transition_weights,
+    vcovar_mat = posterior_context$vcovar_mat,
+    active_vcovar_inds =
+      theta_pack$active_tran_vcovar_inds,
+    period_len = posterior_context$period_len,
+    sweights_vec = posterior_context$sweights_vec
+  )
+
+  fill_block(
+    "transition",
+    transition_result$participant_score
+  )
+  ##### End Transition Block
+
+  ##### Emission block #####
+  emission_score_unweighted <- CalcOakesEmissionParticipantScore(
+    alpha = posterior_context$alpha,
+    beta = posterior_context$beta,
+    pi_l = posterior_context$pi_l,
+    act = posterior_context$act,
+    light = posterior_context$light,
+    vcovar_mat = posterior_context$vcovar_mat,
+    emit_act = params$emit_act,
+    emit_light = params$emit_light,
+    corr_mat = params$corr_mat,
+    lod_act = posterior_context$lod_act,
+    lod_light = posterior_context$lod_light
+  )
+
+  fill_block(
+    "emission",
+    emission_score_unweighted
+  )
+  ##### End emission block #####
+
+  ##### Survival block #####
+  survival_context <- posterior_context$survival_context
+  survival_context$re_prob <- posterior_context$re_prob
+
+  surv_covar_risk_vec <- SurvCovarRiskVec(
+    survival_context$surv_covar,
+    params$surv_coef
+  )
+
+  beta_surv_coef <- IntoBetaSurvCoef(
+    beta_vec = params$beta_vec,
+    surv_coef = params$surv_coef,
+    fit_mix_num = theta_pack$fit_mix_num
+  )
+
+  surv_coef_len <- unlist(lapply(params$surv_coef, length))
+
+  survival_result <- CalcSurvivalScoreInfo(
+    beta_surv_coef = beta_surv_coef,
+    survival_context = survival_context,
+    surv_coef_len = surv_coef_len,
+    fit_mix_num = theta_pack$fit_mix_num,
+    surv_covar_risk_vec = surv_covar_risk_vec,
+    return_participant_score = TRUE
+  )
+
+  fill_block(
+    "survival",
+    survival_result$participant_score_unweighted
+  )
+  ##### End survival block #####
+
+  score_weighted <- sweep(
+    score_unweighted,
+    MARGIN = 1,
+    STATS = posterior_context$sweights_vec,
+    FUN = "*"
+  )
+
+  list(
+    unweighted = score_unweighted,
+    weighted = score_weighted,
+    parameter_map = parameter_map
+  )
+}
+
+CalcOakesInitialParticipantScore <- function(init,initial_prob,sleep_state = SLEEP_STATE){
+
+  n <- dim(initial_prob)[1]
+  mix_num <- dim(initial_prob)[2]
+  wake_state <- setdiff(seq_len(ncol(init)), sleep_state)
+
+  score_ind <- matrix(0, nrow = n, ncol = mix_num)
+
+  for (g in seq_len(mix_num)) {
+    p_sleep <- init[g, sleep_state]
+
+    score_ind[, g] <-
+      initial_prob[, g, sleep_state] / p_sleep -
+      initial_prob[, g, wake_state] / (1 - p_sleep)
+  }
+
+  score_ind
+}
+
+CalcOakesMixingParticipantScore <- function(nu_mat,re_prob,pi_l,nu_covar_mat){
+
+  n <- nrow(nu_covar_mat)
+  covar_num <- ncol(nu_covar_mat)
+  mix_num <- ncol(nu_mat)
+
+  # Class 1 is the reference class.
+  if (mix_num == 1) {
+    return(matrix(0, nrow = n, ncol = 0))
+  }
+
+  score_ind <- matrix(
+    0,
+    nrow = n,
+    ncol = (mix_num - 1) * covar_num
+  )
+
+  pos <- 1
+
+  for (g in 2:mix_num) {
+    idx <- pos:(pos + covar_num - 1)
+
+    class_residual <- re_prob[, g] - pi_l[, g]
+
+    score_ind[, idx] <- sweep(
+      nu_covar_mat,
+      MARGIN = 1,
+      STATS = class_residual,
+      FUN = "*"
+    )
+
+    pos <- pos + covar_num
+  }
+
+  score_ind
+}
+
+# emission 
+
+CalcEmissionQByParticipant <- function(psi,emit_subset,posterior_weights,lod_act,lod_light,n_subject){
+
+  mu_act <- psi[1]
+  sig_act <- psi[2]
+  mu_light <- psi[3]
+  sig_light <- psi[4]
+  corr <- psi[5]
+
+  lower_act <- min(mu_act - 5 * sig_act, -10)
+
+  lintegral <- CalcCase4LogProbFast(
+    lower_act = lower_act,
+    upper_act = lod_act,
+    mu_act = mu_act,
+    sig_act = sig_act,
+    mu_light = mu_light,
+    sig_light = sig_light,
+    bivar_corr = corr,
+    upper_light = lod_light
+  )
+
+  if (is.infinite(lintegral) && lintegral < 0) {
+    lintegral <- -9999
+  }
+
+  log_density <- as.numeric(
+    logClassificationCTobit(
+      act = emit_subset$act,
+      light = emit_subset$light,
+      mu_act = mu_act,
+      sig_act = sig_act,
+      mu_light = mu_light,
+      sig_light = sig_light,
+      lod_act = lod_act,
+      lod_light = lod_light,
+      bivar_corr = corr,
+      lintegral = lintegral
+    )
+  )
+
+  # Match the behavior of weightedLogClassificationCTobitC().
+  log_density[
+    is.infinite(log_density) & log_density < 0
+  ] <- -9999
+
+  nonzero_weight <- posterior_weights != 0
+
+  if (any(!is.finite(log_density[nonzero_weight]))) {
+    stop("Non-finite emission log-density with positive posterior weight")
+  }
+
+  observation_contribution <-
+    numeric(length(posterior_weights))
+
+  observation_contribution[nonzero_weight] <-
+    posterior_weights[nonzero_weight] *
+    log_density[nonzero_weight]
+
+  subject_sum <- rowsum(
+    matrix(observation_contribution, ncol = 1),
+    group = emit_subset$subject_index,
+    reorder = FALSE
+  )
+
+  q_ind <- numeric(n_subject)
+
+  q_ind[as.integer(rownames(subject_sum))] <-
+    subject_sum[, 1]
+
+  q_ind
+}
+
+CalcOakesEmissionParticipantScore <- function(alpha,beta,pi_l,act,light,vcovar_mat,emit_act,emit_light,corr_mat,lod_act,lod_light,vcovar_num = dim(emit_act)[4],method = "Richardson",method.args = list()){
+
+  if (!requireNamespace("numDeriv", quietly = TRUE)) {
+    stop("CalcOakesEmissionParticipantScore requires the numDeriv package")
+  }
+
+  n_subject <- ncol(act)
+  state_num <- dim(emit_act)[1]
+  mix_num <- dim(emit_act)[3]
+  active_vcovar_inds <- ActiveEmissionDayTypes(vcovar_mat, vcovar_num)
+
+  block_size <- length(
+    EmissionPsi(
+      emit_act = emit_act,
+      emit_light = emit_light,
+      corr_mat = corr_mat,
+      state_ind = 1,
+      re_ind = 1,
+      vcovar_ind = active_vcovar_inds[1]
+    )
+  )
+
+  block_count <-
+    length(active_vcovar_inds) * mix_num * state_num
+
+  participant_score <- matrix(
+    0,
+    nrow = n_subject,
+    ncol = block_count * block_size
+  )
+
+  vcovar_mat_emit <- vcovar_mat + 1
+  emit_data <- PrepareEmitLogLikeData(
+    act = act,
+    light = light,
+    vcovar_mat = vcovar_mat_emit
+  )
+
+  weights_array_list <- CondMarginalize(alpha, beta, pi_l)
+  weights_array <- lapply(weights_array_list, exp)
+
+  if (length(weights_array) != state_num) {
+    stop("Emission posterior weights do not match the number of states")
+  }
+
+  pos <- 1
+
+  for (vcovar_ind in active_vcovar_inds) {
+    for (re_ind in seq_len(mix_num)) {
+      for (state_ind in seq_len(state_num)) {
+        psi <- EmissionPsi(
+          emit_act = emit_act,
+          emit_light = emit_light,
+          corr_mat = corr_mat,
+          state_ind = state_ind,
+          re_ind = re_ind,
+          vcovar_ind = vcovar_ind
+        )
+
+        emit_inputs <- PrepareEmitOptimizationInputs(
+          emit_data = emit_data,
+          vcovar_ind = vcovar_ind,
+          weights_array = weights_array[[state_ind]],
+          re_ind = re_ind
+        )
+        emit_inputs <- CleanEmissionInputs(emit_inputs)
+
+        q_by_participant <- function(psi_work) {
+          CalcEmissionQByParticipant(
+            psi = psi_work,
+            emit_subset = emit_inputs$emit_subset,
+            posterior_weights = emit_inputs$weights_vec,
+            lod_act = lod_act,
+            lod_light = lod_light,
+            n_subject = n_subject
+          )
+        }
+
+        block_score <- numDeriv::jacobian(
+          func = q_by_participant,
+          x = psi,
+          method = method,
+          method.args = method.args
+        )
+
+        if (!all(dim(block_score) == c(n_subject, block_size))) {
+          stop("Emission participant-score block has incorrect dimensions")
+        }
+        if (!all(is.finite(block_score))) {
+          stop("Emission participant-score block contains non-finite values")
+        }
+
+        idx <- pos:(pos + block_size - 1)
+        participant_score[, idx] <- block_score
+        pos <- pos + block_size
+      }
+    }
+  }
+
+  participant_score
 }

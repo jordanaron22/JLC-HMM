@@ -2,7 +2,7 @@
 
 library(ggplot2)
 
-input_file <- file.path("Data","JMHMMFitMix5Seed.rda")
+input_file <- file.path("Data","JMHMMRandInitReducedFitMix5Seed159len96.rda")
 output_prefix <- file.path("Output","Figures","nhanes_act_light_fig_weekday")
 day_type_to_plot <- 1
 day_type_label <- "Weekday"
@@ -101,10 +101,10 @@ act_light_plot <- ggplot(
 print(act_light_plot)
 
 dir.create(dirname(output_prefix),recursive = TRUE,showWarnings = FALSE)
-# ggsave(
-#   paste0(output_prefix,".png"),
-#   act_light_plot,
-#   width = 10,
-#   height = 6,
-#   dpi = 300
-# )
+ggsave(
+  paste0(output_prefix,".png"),
+  act_light_plot,
+  width = 10,
+  height = 6,
+  dpi = 300
+)

@@ -124,7 +124,8 @@ PrepareNHANESSEAnalysisData <- function(settings,est_params,data_dir = NULL){
     weekend_only = settings$weekend_only,
     load_data = TRUE,
     surv_coef_true = surv_coef,
-    data_dir = data_dir
+    data_dir = data_dir,
+    resampling_method = "none"
   )
 
   analysis_data <- list(

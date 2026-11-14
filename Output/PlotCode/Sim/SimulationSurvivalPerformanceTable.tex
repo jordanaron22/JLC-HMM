@@ -1,0 +1,33 @@
+% Requires \usepackage{booktabs}, \usepackage{graphicx}, and \usepackage{multirow}.
+
+\begin{table}[!htbp]
+\centering
+\caption{Classification accuracy, bias, root mean squared error (RMSE), and empirical 95\% confidence interval coverage for the joint latent class model (JLCM) and the two-stage model. Fitted classes were aligned to the true classes using the permutation that maximized classification agreement. Accuracy is the mean percentage of participants assigned to their true latent class across simulation replicates. Bias and RMSE were calculated across the four nonreference class-specific Cox log-hazard coefficients using all available point estimates. Coverage is the mean empirical coverage across those four coefficients. JLCM coverage uses the Oakes-information variance estimator and two-stage coverage uses the naive model-based Cox variance estimator.}
+\label{tab:simulation-survival-performance}
+\small
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lccccccccccc}
+\toprule
+\multirow{2}{*}{\shortstack{Latent class\\separation}} &
+\multirow{2}{*}{\shortstack{Follow-up\\(days)}} &
+\multicolumn{5}{c}{JLCM} & \multicolumn{5}{c}{Two-stage} \\
+\cmidrule(lr){3-7}\cmidrule(lr){8-12}
+  & & Entropy & Accuracy (\%) & Bias & RMSE & Coverage (\%)
+  & Entropy & Accuracy (\%) & Bias & RMSE & Coverage (\%) \\
+\midrule
+High   & 1 & 0.383 & 68.6 & $-0.130$ & 0.225 & 86.5 & 0.398 & 66.9 & $-0.228$ & 0.283 & 42.6 \\
+       & 3 & 0.182 & 87.6 & $-0.041$ & 0.090 & 94.2 & 0.189 & 87.1 & $-0.085$ & 0.117 & 81.2 \\
+       & 7 & 0.039 & 97.6 & $-0.008$ & 0.076 & 96.3 & 0.041 & 97.5 & $-0.018$ & 0.077 & 94.1 \\
+\addlinespace
+Middle & 1 & 0.466 & 57.9 & $-0.219$ & 0.374 & 84.3 & 0.493 & 55.9 & $-0.356$ & 0.415 & 28.5 \\
+       & 3 & 0.300 & 77.3 & $-0.081$ & 0.129 & 92.4 & 0.312 & 76.1 & $-0.154$ & 0.185 & 57.0 \\
+       & 7 & 0.121 & 92.1 & $-0.026$ & 0.084 & 95.7 & 0.126 & 91.7 & $-0.056$ & 0.098 & 87.7 \\
+\addlinespace
+Low    & 1 & 0.558 & 47.5 & $-0.376$ & 0.570 & 84.9 & 0.591 & 44.9 & $-0.560$ & 0.634 & 16.3 \\
+       & 3 & 0.413 & 60.0 & $-0.191$ & 0.351 & 83.8 & 0.432 & 57.6 & $-0.299$ & 0.382 & 34.6 \\
+       & 7 & 0.274 & 79.7 & $-0.064$ & 0.122 & 95.7 & 0.286 & 78.6 & $-0.128$ & 0.165 & 63.8 \\
+\bottomrule
+\end{tabular}
+}
+\label{simMSE}
+\end{table}

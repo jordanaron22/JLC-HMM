@@ -197,7 +197,9 @@ MakeNHANESCVFolds <- function(surv_time,
 
 prepare_nhanes_data <- function(period_len,bootstrap,leave_out,sim_num,
                                 single_day,weekend_only,load_data,
-                                surv_coef_true = NULL,data_dir = "Data"){
+                                surv_coef_true = NULL,data_dir = "Data",
+                                resampling_method = "none",
+                                replicate_id = NULL){
   mortality_env <- load_rda_into_env(
     file.path(data_dir,"NHANES_2011_2012_2013_2014.rda")
   )
@@ -272,6 +274,44 @@ prepare_nhanes_data <- function(period_len,bootstrap,leave_out,sim_num,
 
   surv_event <- lmf_data$mortstat
   surv_time <- lmf_data$permth_exm
+
+  jackknife_design <- list()
+  if (IsNHANESJKn(resampling_method)){
+    if (bootstrap || leave_out){
+      stop("NHANES JKn cannot be combined with bootstrap or leave-out CV")
+    }
+    if (is.null(replicate_id)){
+      replicate_id <- sim_num
+    }
+    jackknife_design <- BuildNHANESJKnDesign(
+      id = id,
+      sweights_vec = sweights_vec,
+      replicate_id = replicate_id
+    )
+    keep <- jackknife_design$keep
+    replicate_weights <- jackknife_design$replicate_weights
+
+    act <- act[,keep,drop = FALSE]
+    light <- light[,keep,drop = FALSE]
+    mims <- mims[keep,,drop = FALSE]
+    id <- id[keep,,drop = FALSE]
+    surv_event <- surv_event[keep]
+    surv_time <- surv_time[keep]
+    sweights_vec <- replicate_weights[keep]
+    sweights_vec <- sweights_vec / mean(sweights_vec)
+
+    if (ncol(act) != nrow(id) || nrow(mims) != nrow(id) ||
+        length(surv_event) != nrow(id) || length(surv_time) != nrow(id) ||
+        length(sweights_vec) != nrow(id)){
+      stop("NHANES JKn participant-indexed objects are not aligned")
+    }
+    if (!identical(
+      as.character(id$SEQN),
+      jackknife_design$reference_seqn[jackknife_design$reference_row_index]
+    )){
+      stop("NHANES JKn retained SEQN order changed during subsetting")
+    }
+  }
 
   if (bootstrap){
     boot_inds <- sample(ncol(act),ncol(act),replace = TRUE)
@@ -433,6 +473,7 @@ prepare_nhanes_data <- function(period_len,bootstrap,leave_out,sim_num,
          surv_coef_true = surv_coef_true,
          surv_coef_len = surv_coef_len,
          surv_coef = surv_coef,
-         combined_covar_mat = combined_covar_mat),
+         combined_covar_mat = combined_covar_mat,
+         jackknife_design = jackknife_design),
     leave_out_data)
 }

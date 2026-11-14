@@ -51,10 +51,10 @@ light_sensitivity_plot <- ggplot(
 print(light_sensitivity_plot)
 
 dir.create(dirname(output_prefix),recursive = TRUE,showWarnings = FALSE)
-ggsave(
-  paste0(output_prefix,".png"),
-  light_sensitivity_plot,
-  width = 9,
-  height = 3,
-  dpi = 300
-)
+# ggsave(
+#   paste0(output_prefix,".png"),
+#   light_sensitivity_plot,
+#   width = 9,
+#   height = 3,
+#   dpi = 300
+# )

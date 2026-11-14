@@ -2,8 +2,8 @@
 
 declare -A ResourceLimit
 
-full_run_array_start=1
-full_run_array_end=110
+full_run_array_start=111
+full_run_array_end=250
 cv_fold_count=20
 
 # key: fit_mix_num|model_type
@@ -26,17 +26,17 @@ ResourceLimit["6|two_stage"]="50 10"
 ResourceLimit["7|two_stage"]="60 11"
 
 ScenarioKeys=(
-    # "1|joint"
-    # "2|joint"
-    # "3|joint"
+    "1|joint"
+    "2|joint"
+    "3|joint"
     "4|joint"
     "5|joint"
     "6|joint"
     "7|joint"
 
-    # "1|two_stage"
-    # "2|two_stage"
-    # "3|two_stage"
+    "1|two_stage"
+    "2|two_stage"
+    "3|two_stage"
     "4|two_stage"
     "5|two_stage"
     "6|two_stage"
@@ -54,9 +54,9 @@ fi
 
 data_source="nhanes"
 run_bootstrap=false
-init_jitter_scale=0.0
+init_jitter_scale=0.1
 run_leave_one_out_cv=false
-use_hot_start=true
+use_hot_start=false
 simulation_days=7
 num_people=5000
 save_reduced_output=true

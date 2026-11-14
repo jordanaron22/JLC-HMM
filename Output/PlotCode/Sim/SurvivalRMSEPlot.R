@@ -313,13 +313,13 @@ entropy_rmse_plot <- ggplot(
 print(entropy_rmse_plot)
 
 dir.create(dirname(output_prefix),recursive = TRUE,showWarnings = FALSE)
-# ggsave(
-#   paste0(output_prefix,".png"),
-#   survival_rmse_plot,
-#   width = 10,
-#   height = 6,
-#   dpi = 300
-# )
+ggsave(
+  paste0(output_prefix,".png"),
+  survival_rmse_plot,
+  width = 10,
+  height = 6,
+  dpi = 300
+)
 
 ggsave(
   file.path("Output","Figures","sim_entropy_rmse_reduction_poc.png"),

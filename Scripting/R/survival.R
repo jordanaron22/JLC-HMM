@@ -251,7 +251,8 @@ IntoBetaSurvCoef <- function(beta_vec,surv_coef,fit_mix_num){
 # at fixed finite-dimensional survival parameters.
 CalcSurvivalScoreInfo <- function(beta_surv_coef,survival_context,
                                   surv_coef_len,fit_mix_num,
-                                  surv_covar_risk_vec = NULL){
+                                  surv_covar_risk_vec = NULL,
+                                  return_participant_score = FALSE){
   re_prob <- survival_context$re_prob
   surv_event <- survival_context$surv_event
   surv_time <- survival_context$surv_time
@@ -270,6 +271,13 @@ CalcSurvivalScoreInfo <- function(beta_surv_coef,survival_context,
   param_num <- fit_mix_num + length(unlist(surv_coef)) - length(surv_coef)
   grad <- numeric(param_num)
   hess <- matrix(0,param_num,param_num)
+  n <- length(surv_event)
+
+  participant_score_unweighted <- if (return_participant_score) {
+    matrix(0, nrow = n, ncol = param_num)
+  } else {
+    NULL
+  }
 
   if (is.null(dim(re_prob))){
     re_prob <- matrix(re_prob,ncol = fit_mix_num)
@@ -342,16 +350,27 @@ CalcSurvivalScoreInfo <- function(beta_surv_coef,survival_context,
     risk_set <- surv_time >= surv_time[ind]
     linear_surv_covar_risk <- surv_covar_risk_vec[risk_set]
 
-    risk_weight_mat <- re_prob[risk_set,,drop = FALSE] *
-      sweights_vec[risk_set]*
+    risk_index <- which(risk_set)
+    risk_n <- length(risk_index)
+
+    risk_relative_mat <- re_prob[risk_set,,drop = FALSE] *
       matrix(exp(linear_surv_covar_risk),nrow = sum(risk_set),
              ncol = fit_mix_num) *
       matrix(exp(beta_vec),nrow = sum(risk_set),ncol = fit_mix_num,
              byrow = TRUE)
-    risk_n <- nrow(risk_weight_mat)
+
+    risk_weight_mat <- sweep(
+      risk_relative_mat,
+      MARGIN = 1,
+      STATS = sweights_vec[risk_set],
+      FUN = "*"
+    )
+
     subject_ind <- rep(seq_len(risk_n),each = fit_mix_num)
     class_ind <- rep(seq_len(fit_mix_num),times = risk_n)
     risk_weights <- risk_weight_mat[cbind(subject_ind,class_ind)]
+    risk_relative_weights <-
+      risk_relative_mat[cbind(subject_ind,class_ind)]
     denom <- sum(risk_weights)
 
     if (!is.finite(denom) || denom <= 0){
@@ -363,14 +382,44 @@ CalcSurvivalScoreInfo <- function(beta_surv_coef,survival_context,
     ez <- colSums(sweep(z,1,risk_prob,`*`))
     ezz <- crossprod(z,sweep(z,1,risk_prob,`*`))
 
-    grad <- grad + event_weight * (build_event_z(ind) - ez)
+    event_z <- build_event_z(ind)
+
+    grad <- grad + event_weight * (event_z - ez)
     hess <- hess + event_weight * (ezz - tcrossprod(ez))
+
+    if (return_participant_score) {
+      # The participant's own survey weight is applied later by
+      # CalcOakesParticipantScores().
+      participant_score_unweighted[ind,] <-
+        participant_score_unweighted[ind,] + event_z - ez
+
+      # Risk-set compensator arising from profiling the baseline hazard.
+      centered_z <- sweep(z,MARGIN = 2,STATS = ez,FUN = "-")
+
+      expanded_adjustment <- sweep(
+        centered_z,
+        MARGIN = 1,
+        STATS = (event_weight / denom) * risk_relative_weights,
+        FUN = "*"
+      )
+
+      subject_adjustment <- rowsum(
+        expanded_adjustment,
+        group = subject_ind,
+        reorder = FALSE
+      )
+
+      participant_score_unweighted[risk_index,] <-
+        participant_score_unweighted[risk_index,,drop = FALSE] -
+        subject_adjustment
+    }
   }
 
   hess <- 0.5 * (hess + t(hess))
 
   list(score = grad,
        info = hess,
+       participant_score_unweighted = participant_score_unweighted,
        beta_vec = beta_vec,
        surv_coef = surv_coef,
        surv_covar_risk_vec = surv_covar_risk_vec)

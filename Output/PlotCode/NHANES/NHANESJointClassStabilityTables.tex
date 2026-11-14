@@ -1,0 +1,104 @@
+% Requires \usepackage{booktabs} and \usepackage{graphicx}.
+% Classes in every model are ordered by increasing estimated mortality hazard.
+% Each cross-classification cell is: hard-assignment count (row percentage).
+
+\begin{table}[!htbp]
+\centering
+\caption{Cross-classification of the five-class and four-class joint models}
+\label{tab:nhanes-five-to-four}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lrrrrr}
+\toprule
+& \multicolumn{4}{c}{Four-class model} & \\
+\cmidrule(lr){2-5}
+Five-class model
+  & Class 1 & Class 2 & Class 3 & Class 4 & Total \\
+\midrule
+Class 1 & 251 (11.6\%) & 1,898 (88.0\%) & 0 (0.0\%) & 8 (0.4\%) & 2,157 \\
+Class 2 & 974 (87.4\%) & 21 (1.9\%) & 0 (0.0\%) & 119 (10.7\%) & 1,114 \\
+Class 3 & 0 (0.0\%) & 0 (0.0\%) & 987 (95.8\%) & 43 (4.2\%) & 1,030 \\
+Class 4 & 36 (2.2\%) & 1,562 (94.0\%) & 0 (0.0\%) & 64 (3.9\%) & 1,662 \\
+Class 5 & 0 (0.0\%) & 0 (0.0\%) & 128 (24.6\%) & 392 (75.4\%) & 520 \\
+\midrule
+Total & 1,261 & 3,481 & 1,115 & 626 & 6,483 \\
+\bottomrule
+\end{tabular}%
+}
+\begin{minipage}{\linewidth}
+\footnotesize
+\textit{Note.} Values are numbers of participants, with percentages calculated
+within each row of the five-class model. Classes in both models are ordered by
+increasing estimated mortality hazard. The adjusted Rand index is 0.507.
+\end{minipage}
+\end{table}
+
+\begin{table}[!htbp]
+\centering
+\caption{Cross-classification of the five-class and six-class joint models}
+\label{tab:nhanes-five-to-six}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lrrrrrrr}
+\toprule
+& \multicolumn{6}{c}{Six-class model} & \\
+\cmidrule(lr){2-7}
+Five-class model
+  & Class 1 & Class 2 & Class 3 & Class 4 & Class 5 & Class 6 & Total \\
+\midrule
+Class 1 & 181 (8.4\%) & 1,947 (90.3\%) & 0 (0.0\%) & 23 (1.1\%) & 0 (0.0\%) & 6 (0.3\%) & 2,157 \\
+Class 2 & 754 (67.7\%) & 2 (0.2\%) & 0 (0.0\%) & 39 (3.5\%) & 244 (21.9\%) & 75 (6.7\%) & 1,114 \\
+Class 3 & 0 (0.0\%) & 0 (0.0\%) & 983 (95.4\%) & 0 (0.0\%) & 0 (0.0\%) & 47 (4.6\%) & 1,030 \\
+Class 4 & 0 (0.0\%) & 102 (6.1\%) & 0 (0.0\%) & 1,518 (91.3\%) & 7 (0.4\%) & 35 (2.1\%) & 1,662 \\
+Class 5 & 0 (0.0\%) & 0 (0.0\%) & 122 (23.5\%) & 0 (0.0\%) & 10 (1.9\%) & 388 (74.6\%) & 520 \\
+\midrule
+Total & 935 & 2,051 & 1,105 & 1,580 & 261 & 551 & 6,483 \\
+\bottomrule
+\end{tabular}%
+}
+\begin{minipage}{\linewidth}
+\footnotesize
+\textit{Note.} Values are numbers of participants, with percentages calculated
+within each row of the five-class model. Classes in both models are ordered by
+increasing estimated mortality hazard. The adjusted Rand index is 0.774.
+\end{minipage}
+\end{table}
+
+\begin{table}[!htbp]
+\centering
+\caption{Five-class-anchored comparison of latent classes and mortality hazard ratios}
+\label{tab:nhanes-five-class-anchored}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lrrll}
+\toprule
+Five-class class & $n$ (\%) & HR & Four-class correspondence & Six-class correspondence \\
+\midrule
+Class 1 & 2,157 (33.3\%) & 1.000
+  & Class 2: 88.0\%, HR 1.067
+  & Class 2: 90.3\%, HR 1.209 \\ 
+Class 2 & 1,114 (17.2\%) & 1.282
+  & Class 1: 87.4\%, HR 1.000
+  & \begin{tabular}[t]{@{}l@{}}Class 1: 67.7\%, HR 1.000 \\
+      Class 5: 21.9\%, HR 2.385\end{tabular} \\ 
+Class 3 & 1,030 (15.9\%) & 1.362
+  & Class 3: 95.8\%, HR 1.068
+  & Class 3: 95.4\%, HR 1.539 \\ 
+Class 4 & 1,662 (25.6\%) & 1.588
+  & Class 2: 94.0\%, HR 1.067
+  & Class 4: 91.3\%, HR 1.788 \\ 
+Class 5 & 520 (8.0\%) & 1.747
+  & Class 4: 75.4\%, HR 1.576
+  & \begin{tabular}[t]{@{}l@{}}Class 6: 74.6\%, HR 2.393 \\
+      Class 3: 23.5\%, HR 1.539\end{tabular} \\ 
+\bottomrule
+\end{tabular}%
+}
+\begin{minipage}{\linewidth}
+\footnotesize
+\textit{Note.} HR denotes the class-specific mortality hazard ratio relative
+to Class 1 of the same model. Classes are ordered by increasing estimated
+mortality hazard, so Class 1 is the reference and lowest-risk class in every
+model. Correspondence percentages are row percentages conditional on membership
+in the indicated five-class class. The dominant correspondence is reported,
+along with any secondary six-class correspondence containing at least 10\% of
+the five-class class.
+\end{minipage}
+\end{table}

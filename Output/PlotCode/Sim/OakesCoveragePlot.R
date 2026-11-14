@@ -5,6 +5,8 @@ library(tidyr)
 library(dplyr)
 
 input_file <- file.path("Output","parse_oakes_results.rds")
+simulation_input_file <- file.path("Output","parse_sim_results.rds")
+simulation_fit_root <- file.path("Output","Routputs","RoutputsSim")
 scenario_output_prefix <- file.path(
   "Output","Figures","sim_oakes_scenario_coverage"
 )
@@ -36,9 +38,159 @@ make_model_label <- function(model_type){
 }
 
 
+get_two_stage_naive_summary <- function(simulation_results,target_scenarios,
+                                        fit_root,max_seed = 250){
+  scenario_cols <- c(
+    "simulation_days","num_people","true_mix_num","fit_mix_num",
+    "emission_overlap"
+  )
+
+  two_stage_runs <- simulation_results %>%
+    filter(
+      model_type == "two_stage",
+      sim_num >= 1,
+      sim_num <= max_seed
+    ) %>%
+    semi_join(target_scenarios,by = scenario_cols)
+
+  fit_files <- list.files(
+    fit_root,
+    pattern = "[.]rda$",
+    recursive = TRUE,
+    full.names = TRUE
+  )
+  duplicate_basenames <- unique(
+    basename(fit_files)[duplicated(basename(fit_files))]
+  )
+  if (length(duplicate_basenames) > 0){
+    stop(
+      "Duplicate simulation-fit basenames found under ",fit_root,": ",
+      paste(utils::head(duplicate_basenames,5),collapse = ", ")
+    )
+  }
+  fit_file_by_basename <- setNames(fit_files,basename(fit_files))
+
+  coefficient_rows <- vector("list",nrow(two_stage_runs))
+  missing_files <- character()
+  for (run_ind in seq_len(nrow(two_stage_runs))){
+    saved_file <- unname(
+      fit_file_by_basename[basename(two_stage_runs$file[[run_ind]])]
+    )
+    if (length(saved_file) == 0 || is.na(saved_file)){
+      missing_files <- c(
+        missing_files,
+        basename(two_stage_runs$file[[run_ind]])
+      )
+      next
+    }
+
+    load_env <- new.env(parent = emptyenv())
+    load(saved_file,envir = load_env)
+    saved <- load_env[["to_save"]]
+    if (is.null(saved)){
+      stop("Simulation fit does not contain to_save: ",saved_file)
+    }
+
+    true_beta <- suppressWarnings(as.numeric(
+      saved[["true_params"]][["beta_vec"]]
+    ))
+    estimated_beta <- suppressWarnings(as.numeric(
+      saved[["est_params"]][["beta_vec"]]
+    ))
+    naive_se <- suppressWarnings(as.numeric(
+      saved[["est_params"]][["beta_se"]]
+    ))
+    fit_mix_num <- two_stage_runs$fit_mix_num[[run_ind]]
+    class_indices <- 2:fit_mix_num
+
+    if (
+      length(true_beta) < fit_mix_num ||
+      length(estimated_beta) < fit_mix_num ||
+      length(naive_se) < fit_mix_num
+    ){
+      stop("Incomplete class-beta estimates or SEs in ",saved_file)
+    }
+
+    run_data <- two_stage_runs[
+      rep(run_ind,length(class_indices)),
+      c(scenario_cols,"sim_num"),
+      drop = FALSE
+    ]
+    run_data$class_index <- class_indices
+    run_data$param_name <- paste0("class_",class_indices)
+    run_data$estimate <- estimated_beta[class_indices]
+    run_data$truth <- true_beta[class_indices]
+    run_data$se <- naive_se[class_indices]
+    coefficient_rows[[run_ind]] <- run_data
+  }
+
+  if (length(missing_files) > 0){
+    warning(
+      "Skipped ",length(missing_files),
+      " two-stage runs whose simulation-fit file was not found."
+    )
+  }
+
+  coefficient_data <- bind_rows(coefficient_rows) %>%
+    mutate(
+      bias = estimate - truth,
+      valid = is.finite(estimate) & is.finite(truth) & is.finite(se),
+      covered = truth >= estimate - qnorm(.975) * se &
+        truth <= estimate + qnorm(.975) * se
+    )
+
+  if (nrow(coefficient_data) == 0){
+    stop("No two-stage simulation fits were available for naive coverage")
+  }
+
+  run_counts <- coefficient_data %>%
+    distinct(across(all_of(c(scenario_cols,"sim_num")))) %>%
+    count(across(all_of(scenario_cols)),name = "n_runs")
+  incomplete_scenarios <- run_counts %>% filter(n_runs < max_seed)
+  if (nrow(incomplete_scenarios) > 0){
+    warning(
+      "Some two-stage scenarios have fewer than ",max_seed,
+      " successful saved fits; coverage uses every available fit."
+    )
+  }
+
+  coefficient_data %>%
+    group_by(across(all_of(c(scenario_cols,"param_name")))) %>%
+    summarise(
+      model_type = "two_stage",
+      se_method = "two_stage_naive",
+      n = n(),
+      n_valid = sum(valid),
+      coverage = if (any(valid)) mean(covered[valid]) else NA_real_,
+      mean_bias = if (any(valid)) mean(bias[valid]) else NA_real_,
+      rmse = if (any(valid)) sqrt(mean(bias[valid]^2)) else NA_real_,
+      median_se = if (any(valid)) median(se[valid]) else NA_real_,
+      .groups = "drop"
+    )
+}
+
+
 x <- readRDS(input_file)
 
 cov_summary <- x$class_beta_summary
+
+# The Oakes results directory contains only a subset of the two-stage fits.
+# Recalculate the naive two-stage intervals from all seeds 1--250 in the
+# ordinary simulation output, then replace the incomplete parsed rows.
+simulation_results <- readRDS(simulation_input_file)
+target_scenarios <- cov_summary %>%
+  distinct(
+    simulation_days,num_people,true_mix_num,fit_mix_num,emission_overlap
+  )
+two_stage_naive_summary <- get_two_stage_naive_summary(
+  simulation_results,
+  target_scenarios,
+  simulation_fit_root,
+  max_seed = 250
+)
+cov_summary <- cov_summary %>%
+  filter(!(model_type == "two_stage" & se_method == "two_stage_naive")) %>%
+  bind_rows(two_stage_naive_summary)
 
 
 wide_cov <- cov_summary %>%
@@ -144,7 +296,7 @@ scenario_coverage_plot <- ggplot(
   geom_col(position = position_dodge(width = 0.8),width = 0.7,
            color = "black") +
   geom_hline(yintercept = 0.95,linetype = "dashed",color = "gray35") +
-  # facet_grid(rows = vars(overlap_label)) +
+  facet_grid(rows = vars(overlap_label)) +
   coord_cartesian(ylim = c(0,1)) +
   scale_fill_viridis_d(end = .85,name = "Model") +
   labs(x = "Simulation Days",
@@ -238,23 +390,3 @@ dir.create(dirname(scenario_output_prefix),recursive = TRUE,showWarnings = FALSE
 
 # scenario_plot_data %>% filter(emission_overlap == "high", simulation_days == 7)
 
-
-
-plot_data <- scenario_plot_data%>% filter(emission_overlap == 'low' & (model_type == "Joint"|model_type=="Two-Stage MT"))
-plot_data$model_type[4:6] <- "Two-Stage"
-ggplot(
-  plot_data,
-  aes(x = days_label,y = coverage,fill = model_type)
-) +
-  geom_col(position = position_dodge(width = 0.8),width = 0.7,
-           color = "black") +
-  geom_hline(yintercept = 0.95,linetype = "dashed",color = "gray35") +
-  coord_cartesian(ylim = c(0,1)) +
-  scale_fill_viridis_d(end = .85,name = "Model") +
-  labs(x = "Simulation Days",
-       y = "Coverage",
-       fill = "Model",
-       title = "Survival Latent Class Coefficient Coverage") +
-  theme_bw()
-
-# ggsave('CoveragePresentation.png',height = 3.335)

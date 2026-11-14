@@ -14,8 +14,8 @@ model_selection_df <- parsed_cv$cv_model_selection |>
   filter(selection_group == model_type_to_plot) |>
   select(
     fit_mix_num,
-    partial_loglik =
-      cv_partial_loglik_pooled_weighted,
+    # partial_loglik =
+    #   cv_partial_loglik_pooled_weighted,
     pooled_oof_cindex =
       cindex_scenario6_pooled_oof,
     weighted_ibs =
@@ -24,16 +24,16 @@ model_selection_df <- parsed_cv$cv_model_selection |>
 
 diagnostic_info <- data.frame(
   diagnostic = c(
-    "partial_loglik",
+    # "partial_loglik",
     "pooled_oof_cindex",
     "weighted_ibs"
   ),
   diagnostic_label = c(
-    "Partial Weighted Log-Likelihood",
-    "Pooled OOF Weighted C-index",
-    "Pooled OOF Weighted IBS"
+    # "Partial Log-Likelihood",
+    "Pooled OOF C-index",
+    "Pooled OOF IBS"
   ),
-  best_direction = c("max","max","min")
+  best_direction = c("max","min")
 )
 
 plot_df <- model_selection_df |>
@@ -71,7 +71,7 @@ best_df <- plot_df |>
     .groups = "drop"
   )
 
-model_selection_plot <- ggplot(plot_df) +
+model_selection_plot <- ggplot(plot_df |> filter(diagnostic_label != "Partial Log-Likelihood")) +
   geom_rect(
     aes(
       xmin = fit_mix_num_position - 0.4,
@@ -92,7 +92,7 @@ model_selection_plot <- ggplot(plot_df) +
     labels = sort(unique(plot_df$fit_mix_num))
   ) +
   scale_y_continuous(expand = expansion(mult = c(0,0.05))) +
-  facet_wrap(~ diagnostic_label,scales = "free_y",ncol = 3) +
+  facet_wrap(~ diagnostic_label,scales = "free_y",ncol = 2) +
   theme_bw() +
   labs(
     x = "Number of latent classes",

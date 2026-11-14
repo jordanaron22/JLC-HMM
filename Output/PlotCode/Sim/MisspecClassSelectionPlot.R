@@ -110,6 +110,24 @@ plot_df$selected_fit_mix_num <- factor(
   levels = class_levels
 )
 
+plot_df$criterion_label <- factor(
+  plot_df$criterion,
+  levels = c("aic","bic","test_cindex","test_ibs"),
+  labels = c("AIC","BIC","Test C-Index","Test IBS")
+)
+
+day_levels <- c(1,3,7)
+plot_df$days_label <- factor(
+  plot_df$days,
+  levels = day_levels,
+  labels = paste0("Days of Longitudinal Follow-Up: ",day_levels)
+)
+
+true_class_position <- match(5,class_levels)
+if (is.na(true_class_position)){
+  stop("The true five-class solution is absent from the fitted class levels.")
+}
+
 class_selection_plot <- ggplot(
   plot_df,
   aes(x = selected_fit_mix_num,y = percent)
@@ -119,8 +137,12 @@ class_selection_plot <- ggplot(
     fill = "grey70",
     color = "black"
   ) +
-  facet_grid(rows = vars(criterion),
-             cols = vars(days)) +
+  geom_vline(
+    xintercept = true_class_position,
+    linetype = "dashed"
+  ) +
+  facet_grid(rows = vars(criterion_label),
+             cols = vars(days_label)) +
   theme_bw() +
   labs(x = "Selected latent classes",y = "Selections (%)")
 

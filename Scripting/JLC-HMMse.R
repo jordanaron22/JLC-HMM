@@ -39,6 +39,9 @@ library(survival)
 library(numDeriv)
 library(Matrix)
 library(Hmisc)
+library(survey)
+library(DBI)
+library(mitools)
 
 source_jmhmm_module <- function(module_file){
   candidate_paths <- c(file.path("Scripting","R",module_file),
@@ -554,6 +557,7 @@ schur_survival <- function(I_obs,score,parameter_map){
 
   list(surv_idx = surv_idx,
        nuisance_idx = nuis_idx,
+       projection = solve_I_nn_I_ns,
        S_surv = S_surv,
        S_surv_for_solve = S_surv_for_solve,
        vcov_surv = vcov_surv,
@@ -567,10 +571,174 @@ schur_survival <- function(I_obs,score,parameter_map){
                               S_surv_eigen))
 }
 
+calc_nhanes_survival_sandwich <- function(
+    participant_scores,
+    aggregate_score,
+    schur,
+    theta,
+    analysis_data){
+
+  if (!requireNamespace("survey",quietly = TRUE)){
+    stop("The survey package is required for the NHANES sandwich estimator")
+  }
+
+  required_fields <- c("survey_strata","survey_psu","sweights_vec")
+  missing_fields <- setdiff(required_fields,names(analysis_data))
+  if (length(missing_fields) > 0){
+    stop("NHANES sandwich inputs are missing: ",
+         paste(missing_fields,collapse = ", "))
+  }
+
+  score_unweighted <- participant_scores$unweighted
+  score_weighted <- participant_scores$weighted
+  n <- nrow(score_unweighted)
+
+  if (!all(dim(score_unweighted) == dim(score_weighted))){
+    stop("Weighted and unweighted participant-score dimensions differ")
+  }
+  if (ncol(score_unweighted) != length(theta)){
+    stop("Participant-score columns do not match theta")
+  }
+  if (length(aggregate_score) != length(theta)){
+    stop("Aggregate score does not match theta")
+  }
+
+  survey_strata <- analysis_data$survey_strata
+  survey_psu <- analysis_data$survey_psu
+  sweights_vec <- analysis_data$sweights_vec
+
+  if (length(survey_strata) != n || length(survey_psu) != n ||
+      length(sweights_vec) != n){
+    stop("NHANES design vectors must have one entry per participant")
+  }
+  if (anyNA(survey_strata) || anyNA(survey_psu) ||
+      any(!is.finite(sweights_vec)) || any(sweights_vec <= 0)){
+    stop("NHANES strata, PSU, and weight variables must be complete and valid")
+  }
+
+  score_difference <- colSums(score_weighted) - aggregate_score
+  aggregate_score_l2 <- sqrt(sum(aggregate_score^2))
+  score_diagnostics <- list(
+    max_absolute_difference = max(abs(score_difference)),
+    rms_difference = sqrt(mean(score_difference^2)),
+    relative_l2 = sqrt(sum(score_difference^2)) /
+      max(1,aggregate_score_l2),
+    difference = score_difference
+  )
+
+  surv_idx <- schur$surv_idx
+  nuisance_idx <- schur$nuisance_idx
+  projection <- schur$projection
+
+  if (!all(dim(projection) == c(length(nuisance_idx),length(surv_idx)))){
+    stop("Schur projection has incorrect dimensions")
+  }
+
+  efficient_score_unweighted <-
+    score_unweighted[,surv_idx,drop = FALSE] -
+    score_unweighted[,nuisance_idx,drop = FALSE] %*% projection
+
+  survival_parameter_names <- names(theta)[surv_idx]
+  colnames(efficient_score_unweighted) <- survival_parameter_names
+
+  score_names <- paste0("score_",seq_len(ncol(efficient_score_unweighted)))
+  design_data <- data.frame(
+    strata = factor(survey_strata),
+    psu = factor(survey_psu),
+    weight = sweights_vec
+  )
+  design_data[score_names] <- efficient_score_unweighted
+
+  psus_per_stratum <- vapply(
+    split(design_data$psu,design_data$strata),
+    function(x) length(unique(x)),
+    integer(1)
+  )
+  if (any(psus_per_stratum < 2)){
+    stop("At least one NHANES stratum has fewer than two retained PSUs")
+  }
+
+  nhanes_design <- survey::svydesign(
+    ids = ~psu,
+    strata = ~strata,
+    weights = ~weight,
+    nest = TRUE,
+    data = design_data
+  )
+
+  score_total <- survey::svytotal(
+    reformulate(score_names),
+    design = nhanes_design
+  )
+  design_meat <- as.matrix(stats::vcov(score_total))
+
+  rownames(design_meat) <- survival_parameter_names
+  colnames(design_meat) <- survival_parameter_names
+
+  S_inv <- schur$vcov_surv
+  survival_vcov_sandwich <-
+    S_inv %*% design_meat %*% t(S_inv)
+  survival_vcov_sandwich <- 0.5 *
+    (survival_vcov_sandwich + t(survival_vcov_sandwich))
+
+  rownames(survival_vcov_sandwich) <- survival_parameter_names
+  colnames(survival_vcov_sandwich) <- survival_parameter_names
+
+  survival_se_sandwich <- sqrt(diag(survival_vcov_sandwich))
+  names(survival_se_sandwich) <- survival_parameter_names
+
+  design_df <- survey::degf(nhanes_design)
+  critical_value <- stats::qt(0.975,df = design_df)
+  survival_estimate <- theta[surv_idx]
+
+  confidence_interval <- data.frame(
+    parameter = survival_parameter_names,
+    estimate = as.numeric(survival_estimate),
+    se = as.numeric(survival_se_sandwich),
+    df = design_df,
+    lower = as.numeric(survival_estimate -
+                         critical_value * survival_se_sandwich),
+    upper = as.numeric(survival_estimate +
+                         critical_value * survival_se_sandwich),
+    row.names = NULL
+  )
+
+  list(
+    variance_method = "nhanes_taylor_linearized_oakes_sandwich",
+    profile_baseline_alignment =
+      "working: survival scores are profile-adjusted; HMM nuisance scores are not",
+    participant_scores = participant_scores,
+    participant_score_diagnostics = score_diagnostics,
+    efficient_score_unweighted = efficient_score_unweighted,
+    design_meat = design_meat,
+    vcov = survival_vcov_sandwich,
+    se = survival_se_sandwich,
+    confidence_interval = confidence_interval,
+    design_df = design_df,
+    number_strata = length(psus_per_stratum),
+    number_psus = sum(psus_per_stratum),
+    psus_per_stratum = psus_per_stratum
+  )
+}
 
 
-settings <- build_settings()
+
+if (interactive()){
+  settings <- build_settings(
+    cli_args = c(
+      "5","joint","nhanes","false","0","false","true",
+      "7","5000","5","true","true","low","48","20","profiled"
+    ),
+    sim_num = 33
+  )
+} else {
+  settings <- build_settings()
+}
 settings$model_name <- build_model_name(settings)
+
+# ##### HARDCODED WATCH OUT
+# settings$model_name <-
+#   "JMHMMRandInitReducedFitMix5Seed33len96.rda"
 
 cli_args <- settings$command_args
 list2env(settings,envir = environment())
@@ -696,6 +864,25 @@ matrix_checks <- rbind(matrix_diagnostics(H1,"H1"),
 schur <- schur_survival(I_obs_sym,oakes_score$score,
                         theta_pack$parameter_map)
 
+survival_design_sandwich <- NULL
+if (identical(settings$data_source,DATA_SOURCE[["nhanes"]]) &&
+    identical(survival_baseline_mode,"profiled")){
+  participant_scores <- CalcOakesParticipantScores(
+    theta = theta_pack$theta,
+    theta_pack = theta_pack,
+    posterior_context = posterior_context,
+    subject_id = analysis_data$subject_id
+  )
+
+  survival_design_sandwich <- calc_nhanes_survival_sandwich(
+    participant_scores = participant_scores,
+    aggregate_score = oakes_score$score,
+    schur = schur,
+    theta = theta_pack$theta,
+    analysis_data = analysis_data
+  )
+}
+
 to_save$oakes <- list(
   variance_method = "weighted_model_based_oakes",
   settings = list(h2_eps = h2_eps,
@@ -729,6 +916,7 @@ to_save$oakes <- list(
     profile_iterations = posterior_context$profile_iterations,
     profile_error = posterior_context$profile_error),
   survival_schur = schur,
+  survival_design_sandwich = survival_design_sandwich,
   diagnostics = list(
     posterior = posterior_diagnostics,
     score = score_diagnostics,
